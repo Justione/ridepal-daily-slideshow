@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "pipeline"))
 import blurb_writer
 import concept
 import osm_geometry
-import photo_google
+import photo_serper
 import render as render_module
 from errors import ConfigError
 
@@ -137,14 +137,14 @@ def _attempt_pipeline(avoid_regions):
         # rider actually in frame. This is NOT a licensed stock photo --
         # get the photographer's permission via the source page before
         # posting.
-        photo = photo_google.find_photo(region_display, fallback_queries=fallback_queries)
+        photo = photo_serper.find_photo(region_display, fallback_queries=fallback_queries)
         if not photo:
             raise RuntimeError(
                 f"No photo with a verified rider found for {region_display} or its fallbacks.")
         run_id = uuid.uuid4().hex[:10]
         ext = CONTENT_TYPE_EXT.get(photo["content_type"], ".jpg")
         photo_path = DAILY_PHOTOS / f"{run_id}{ext}"
-        photo_google.save_photo(photo, photo_path)
+        photo_serper.save_photo(photo, photo_path)
 
         # On-brand copy, grounded only in the real stats/description above
         copy = blurb_writer.write_copy(region_display, angle_label, trails)

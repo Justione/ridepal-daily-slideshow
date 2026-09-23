@@ -1,19 +1,21 @@
-"""Sources real regional MTB action photography via Google's official
-Custom Search JSON API, then verifies each candidate actually shows a
-rider on a bike using Claude vision before accepting it. Stock libraries
-like Unsplash turned out not to have enough real trail-riding action
-shots, and a keyword filter on a photo's alt text/title isn't reliable
-enough to guarantee a rider is actually in frame -- this checks the
-actual pixels.
+"""Sources real regional MTB action photography via Serper.dev's Google
+Images API. Google's own Custom Search JSON API stopped granting access
+to new projects (confirmed: enabling it, scoping it to specific sites,
+fixing API key restrictions -- none of it mattered, the project itself
+is refused access), so this proxies real Google Images results through
+a cheap third-party service instead: still literally Google's index,
+just accessed through a vendor Google itself points traffic through
+rather than a free direct API. Every candidate is then verified by
+Claude vision before acceptance so a rider is confirmed visible in the
+pixels, not just implied by a query or a page's alt text.
 
 Every photo returned here is UNLICENSED for posting. These are real
-photos found on the open web, not stock photos cleared for reuse --
-`cleared` is always False. Get the photographer's permission via the
-source page before posting, same as the original workflow.
+photos found on the open web via Google Images, not stock photos
+cleared for reuse -- `cleared` is always False. Get the photographer's
+permission via the source page before posting.
 
-Requires GOOGLE_API_KEY, GOOGLE_CSE_ID (a Programmable Search Engine at
-programmablesearchengine.google.com, configured for image search), and
-ANTHROPIC_API_KEY (for the vision check).
+Requires SERPER_API_KEY (serper.dev -- 2,500 free queries, no credit
+card required, then paid) and ANTHROPIC_API_KEY (for the vision check).
 """
 import base64
 import os
@@ -24,7 +26,7 @@ import requests
 
 from errors import ConfigError
 
-API_BASE = "https://www.googleapis.com/customsearch/v1"
+API_URL = "https://google.serper.dev/images"
 VISION_MODEL = "claude-sonnet-5"
 
 QUERY_SUFFIX = "mountain biker riding trail"
@@ -38,18 +40,15 @@ RIDER_CHECK_PROMPT = (
 )
 
 
-def _keys():
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    cse_id = os.environ.get("GOOGLE_CSE_ID")
-    if not api_key or not cse_id:
+def _api_key():
+    key = os.environ.get("SERPER_API_KEY")
+    if not key:
         raise ConfigError(
-            "GOOGLE_API_KEY and GOOGLE_CSE_ID are not set. Create a free "
-            "Programmable Search Engine at programmablesearchengine.google.com "
-            "(with image search turned on) for GOOGLE_CSE_ID, and an API key "
-            "at console.cloud.google.com/apis/credentials with the Custom "
-            "Search API enabled for GOOGLE_API_KEY."
+            "SERPER_API_KEY is not set. Sign up free at serper.dev "
+            "(2,500 free queries, no credit card required) and set the "
+            "key it gives you as SERPER_API_KEY."
         )
-    return api_key, cse_id
+    return key
 
 
 def _anthropic_client():
@@ -59,24 +58,20 @@ def _anthropic_client():
     return anthropic.Anthropic(api_key=key, timeout=30.0)
 
 
-def _search_candidates(query, api_key, cse_id, num=10):
-    resp = requests.get(API_BASE, params={
-        "key": api_key,
-        "cx": cse_id,
-        "q": query,
-        "searchType": "image",
-        "num": min(num, 10),
-        "safe": "active",
-        "imgSize": "large",
-    }, timeout=20)
-    if resp.status_code in (400, 403):
-        # A bad key, a disabled API, or a misconfigured search engine --
-        # this is a setup problem, not "no photos for this region", and
-        # retrying with a different region won't fix it.
-        detail = resp.json().get("error", {}).get("message", resp.text)
-        raise ConfigError(f"Google Custom Search API error ({resp.status_code}): {detail}")
+def _search_candidates(query, api_key, num=10):
+    resp = requests.post(
+        API_URL,
+        headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+        json={"q": query, "num": num},
+        timeout=20,
+    )
+    if resp.status_code in (400, 401, 403):
+        # A bad/missing key or an exhausted free tier -- a setup
+        # problem, not "no photos for this region", so retrying with a
+        # different region won't fix it.
+        raise ConfigError(f"Serper Images API error ({resp.status_code}): {resp.text}")
     resp.raise_for_status()
-    return resp.json().get("items", [])
+    return resp.json().get("images", [])
 
 
 def _download_image(url, max_bytes=15_000_000):
@@ -108,25 +103,25 @@ def _has_visible_rider(image_bytes, media_type, client):
 
 
 def find_photo(region_query, fallback_queries=None, max_checked_per_tier=6):
-    """Searches Google Images (region, then each fallback query in order),
-    downloads candidates, and returns the first one Claude actually
-    confirms has a visible rider on a bike. Returns None if nothing
-    verified across every tier.
+    """Searches real Google Images results (region, then each fallback
+    query in order), downloads candidates, and returns the first one
+    Claude actually confirms has a visible rider on a bike. Returns None
+    if nothing verified across every tier.
     """
-    api_key, cse_id = _keys()
+    api_key = _api_key()
     client = _anthropic_client()
 
     queries = [region_query] + (fallback_queries or [])
     for q in queries:
         try:
-            items = _search_candidates(f"{q} {QUERY_SUFFIX}", api_key, cse_id)
+            items = _search_candidates(f"{q} {QUERY_SUFFIX}", api_key)
         except ConfigError:
             raise
         except requests.RequestException:
             continue
 
         for item in items[:max_checked_per_tier]:
-            image_url = item.get("link")
+            image_url = item.get("imageUrl")
             if not image_url:
                 continue
             try:
@@ -144,8 +139,8 @@ def find_photo(region_query, fallback_queries=None, max_checked_per_tier=6):
             return {
                 "bytes": content,
                 "content_type": media_type,
-                "source_page": (item.get("image") or {}).get("contextLink") or item.get("displayLink"),
-                "source_site": item.get("displayLink"),
+                "source_page": item.get("link"),
+                "source_site": item.get("domain") or item.get("source"),
                 "title": item.get("title"),
                 "matched_query": q,
                 "cleared": False,
