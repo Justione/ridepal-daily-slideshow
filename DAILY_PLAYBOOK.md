@@ -54,6 +54,29 @@ one.
 Each trail dict now has: `trail_name`, `distance`, `difficulty_label`,
 `est_time`, `surface`, `description`, `lat`, `lon`, `region`, `url`.
 
+## A note on tool availability in this environment
+
+This playbook was written and validated in a session with a full browser
+tool (`mcp__Claude_Browser__*`). A scheduled cloud run may not have that
+same tool — check what's available at the start of the run. If there's
+no interactive browser tool:
+- Try `WebFetch` for the Overpass query in Step 2 first. If it also gets
+  blocked (Overpass returns HTTP 406 to `curl` and to Python `requests`
+  regardless of headers, confirmed) then real GPS geometry isn't
+  reachable this run — skip it for the affected trail(s) and use the
+  documented procedural-line fallback (`render.py` already handles this
+  cleanly when a trail has no `points` but does have `lat`/`lon`, which
+  every ridepal.app trail has). Don't block the whole run on this.
+- For Step 3's photo search, try `WebSearch`/`WebFetch` against Unsplash
+  first. If that doesn't work well, it's fine to reuse one of the
+  already-downloaded, already-licensed photos in `assets/test-photos/`
+  for this run rather than skipping photos entirely — note in the
+  delivery message that a fresh regional photo wasn't sourced this time.
+
+Never let a missing tool block the whole run. Degrade gracefully per the
+above, and say clearly in the delivery message which steps had to fall
+back, so Justin knows what to double check.
+
 ## Step 2 — Get each trail's real GPS line (needs the browser)
 
 `ridepal.app`'s own trail-line data isn't exposed on the public page, but
