@@ -81,10 +81,12 @@ def resolve_region(path, min_trails=MIN_TRAILS_FOR_LIST):
     return region
 
 
-def pick_region(recent_avoid_days=14):
+def pick_region(recent_avoid_days=14, avoid_regions=None):
     """Tries candidate regions in random order until one actually
     resolves with real, sufficient data. Skips anything used in the last
-    `recent_avoid_days` so the feed doesn't repeat the same place.
+    `recent_avoid_days` so the feed doesn't repeat the same place, plus
+    anything in `avoid_regions` (regions that already failed earlier in
+    this same generation attempt, e.g. not enough real trails).
     """
     state = _load_state()
     cutoff = date.today().toordinal() - recent_avoid_days
@@ -92,6 +94,7 @@ def pick_region(recent_avoid_days=14):
         r["region_path"] for r in state["used_regions"]
         if date.fromisoformat(r["date"]).toordinal() > cutoff
     }
+    recently_used |= set(avoid_regions or [])
 
     candidates = [c for c in CANDIDATE_REGIONS if c not in recently_used]
     random.shuffle(candidates)
@@ -197,12 +200,15 @@ DIFFICULTY_LABEL_TO_KEY_LOOKUP = {
 }
 
 
-def choose_concept():
+def choose_concept(avoid_regions=None):
     """Top-level entry point: returns a dict describing today's concept,
     or raises if no candidate region could be resolved at all (should be
     rare given the seed list, but this must never fall back to guessing).
+
+    `avoid_regions`: region paths to skip, e.g. ones that already failed
+    earlier in this same generation attempt.
     """
-    region_path, region = pick_region()
+    region_path, region = pick_region(avoid_regions=avoid_regions)
     if not region:
         raise RuntimeError(
             "No candidate region resolved with real data -- add more "

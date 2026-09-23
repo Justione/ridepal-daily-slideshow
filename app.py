@@ -2,12 +2,16 @@
 
 A small local Flask app: one page with a Generate button that runs the
 full pipeline (region/trail selection, real stats, real GPS geometry,
-real regional photo, AI-written on-brand copy, then the approved render
-template) and shows the result.
+a real photo with a verified rider in it, AI-written on-brand copy, then
+the approved render template) and shows the result. Every run is also
+saved to state/history/ so past slideshows stay browsable instead of
+being lost the moment a new one is generated.
 """
+import json
 import sys
 import traceback
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -21,13 +25,17 @@ sys.path.insert(0, str(ROOT / "pipeline"))
 import blurb_writer
 import concept
 import osm_geometry
-import photo_unsplash
+import photo_google
 import render as render_module
+from errors import ConfigError
 
 OUTPUT_DIR = ROOT / "output" / "web"
 DAILY_PHOTOS = ROOT / "assets" / "daily-photos"
+HISTORY_DIR = ROOT / "state" / "history"
+HISTORY_INDEX = ROOT / "state" / "history_index.json"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 DAILY_PHOTOS.mkdir(parents=True, exist_ok=True)
+HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
 # Separate from templates/ (the Jinja slide-rendering templates used by
 # render.py) to avoid any collision -- this is the web UI's own folder.
@@ -35,6 +43,17 @@ app = Flask(__name__, template_folder=str(ROOT / "web" / "templates"),
             static_folder=str(ROOT / "web" / "static"))
 
 COUNTRY_NAMES = {"us": "United States", "canada": "Canada"}
+
+# A region that fails for a data-availability reason (not enough real
+# trails, no verified rider photo) is worth retrying elsewhere. A
+# ConfigError (missing API key) is not -- retrying just repeats the same
+# failure, so it's raised immediately instead of burning through retries.
+MAX_ATTEMPTS = 3
+
+CONTENT_TYPE_EXT = {
+    "image/jpeg": ".jpg", "image/png": ".png",
+    "image/gif": ".gif", "image/webp": ".webp",
+}
 
 
 def _region_display_and_fallbacks(region_path):
@@ -73,56 +92,71 @@ def _pick_single_trail(region):
     return best
 
 
-def run_pipeline():
-    c = concept.choose_concept()
-    region_display, fallback_queries = _region_display_and_fallbacks(c["region_path"])
+def _attempt_pipeline(avoid_regions):
+    """One full attempt at a concept + render. Raises RuntimeError on
+    failure. If the failure is specific to the region's own data (not a
+    config problem), the exception carries a `.region_path` attribute so
+    the caller can avoid that region on the next attempt.
+    """
+    c = concept.choose_concept(avoid_regions=avoid_regions)
+    region_path = c["region_path"]
+    region_display, fallback_queries = _region_display_and_fallbacks(region_path)
 
-    if c["format"] == "ranked_list":
-        trails = concept.select_trails(c["region"], c["difficulty_key"], count=3, max_checks=25)
-        if len(trails) < 2:
+    try:
+        if c["format"] == "ranked_list":
+            trails = concept.select_trails(c["region"], c["difficulty_key"], count=3, max_checks=25)
+            if len(trails) < 2:
+                raise RuntimeError(
+                    f"Only found {len(trails)} usable trail(s) in {region_display} for this angle.")
+            angle_label = c["difficulty_label"]
+            hook_word = c["hook_word"]
+        else:
+            trail = _pick_single_trail(c["region"])
+            if not trail:
+                raise RuntimeError(f"Couldn't find a usable trail in {region_display}.")
+            trails = [trail]
+            angle_label = trail["difficulty_label"]
+            hook_word = "a standout"
+
+        # Real GPS geometry, via a real (headless) browser -- Overpass
+        # blocks plain HTTP clients but not an actual browser navigating
+        # a real page.
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto("https://www.ridepal.app/", wait_until="domcontentloaded", timeout=20000)
+            for t in trails:
+                try:
+                    t["points"] = osm_geometry.find_trail_geometry(
+                        page, t["trail_name"], t["lat"], t["lon"], expected_surface=t.get("surface"))
+                except Exception:
+                    t["points"] = None
+            browser.close()
+
+        # A real photo from Google Images with a Claude-vision-verified
+        # rider actually in frame. This is NOT a licensed stock photo --
+        # get the photographer's permission via the source page before
+        # posting.
+        photo = photo_google.find_photo(region_display, fallback_queries=fallback_queries)
+        if not photo:
             raise RuntimeError(
-                f"Only found {len(trails)} usable trail(s) in {region_display} for this "
-                "angle after checking -- try generating again."
-            )
-        angle_label = c["difficulty_label"]
-        hook_word = c["hook_word"]
-    else:
-        trail = _pick_single_trail(c["region"])
-        if not trail:
-            raise RuntimeError(f"Couldn't find a usable trail in {region_display} -- try again.")
-        trails = [trail]
-        angle_label = trail["difficulty_label"]
-        hook_word = "a standout"
+                f"No photo with a verified rider found for {region_display} or its fallbacks.")
+        run_id = uuid.uuid4().hex[:10]
+        ext = CONTENT_TYPE_EXT.get(photo["content_type"], ".jpg")
+        photo_path = DAILY_PHOTOS / f"{run_id}{ext}"
+        photo_google.save_photo(photo, photo_path)
 
-    # Real GPS geometry, via a real (headless) browser -- Overpass blocks
-    # plain HTTP clients but not an actual browser navigating a real page.
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        page.goto("https://www.ridepal.app/", wait_until="domcontentloaded", timeout=20000)
-        for t in trails:
-            try:
-                t["points"] = osm_geometry.find_trail_geometry(
-                    page, t["trail_name"], t["lat"], t["lon"], expected_surface=t.get("surface"))
-            except Exception:
-                t["points"] = None
-        browser.close()
-
-    # Real, licensed regional photo
-    photo = photo_unsplash.search_photo(region_display, fallback_queries=fallback_queries)
-    if not photo:
-        raise RuntimeError(f"Unsplash had nothing usable for {region_display} or its fallbacks.")
-    run_id = uuid.uuid4().hex[:10]
-    photo_path = DAILY_PHOTOS / f"{run_id}.jpg"
-    photo_unsplash.download_photo(photo, photo_path)
-
-    # On-brand copy, grounded only in the real stats/description above
-    copy = blurb_writer.write_copy(region_display, angle_label, trails)
+        # On-brand copy, grounded only in the real stats/description above
+        copy = blurb_writer.write_copy(region_display, angle_label, trails)
+    except ConfigError:
+        raise
+    except RuntimeError as e:
+        e.region_path = region_path
+        raise
 
     slides = [{
         "type": "cover",
         "photo": str(photo_path),
-        "kicker": region_display.upper(),
         "headline": copy["cover_headline"],
     }]
     for t in trails[:3]:
@@ -175,9 +209,6 @@ def run_pipeline():
         caption_lines.append(f"{t['trail_name']}: {t.get('distance', '?')}, {t['difficulty_label']}")
     caption_lines.append("")
     caption_lines.append("Find trails like this on RidePal.")
-    caption_lines.append("")
-    caption_lines.append(
-        f"Photo: {photo['photographer']} / Unsplash ({photo.get('location') or region_display})")
 
     return {
         "run_id": run_id,
@@ -186,9 +217,33 @@ def run_pipeline():
         "trail_names": [t["trail_name"] for t in trails],
         "slides": [f"/output/web/{run_id}/{p.name}" for p in paths],
         "caption": "\n".join(caption_lines),
-        "photo_credit": f"{photo['photographer']} (@{photo['photographer_username']}) via Unsplash",
+        "photo_cleared": False,
+        "photo_source_page": photo.get("source_page"),
+        "photo_source_site": photo.get("source_site"),
         "geometry_found": [bool(t.get("points")) for t in trails],
     }
+
+
+def run_pipeline():
+    """Retries with a different region when a failure is about that
+    region's own data (not enough real trails, no verified photo)
+    instead of surfacing a raw error on the first miss.
+    """
+    avoid_regions = set()
+    last_error = None
+    for _ in range(MAX_ATTEMPTS):
+        try:
+            return _attempt_pipeline(avoid_regions)
+        except ConfigError:
+            raise
+        except RuntimeError as e:
+            region_path = getattr(e, "region_path", None)
+            if region_path:
+                avoid_regions.add(region_path)
+            last_error = e
+    raise RuntimeError(
+        f"Tried {MAX_ATTEMPTS} different areas and none had enough real data. "
+        f"Last error: {last_error}")
 
 
 def _difficulty_key(label):
@@ -196,6 +251,26 @@ def _difficulty_key(label):
         "Green Circle": "green", "Blue Square": "blue",
         "Black Diamond": "black", "Double Black Diamond": "double_black",
     }.get(label, "blue")
+
+
+def _load_history_index():
+    if HISTORY_INDEX.exists():
+        return json.loads(HISTORY_INDEX.read_text())
+    return []
+
+
+def _save_history_entry(result):
+    (HISTORY_DIR / f"{result['run_id']}.json").write_text(json.dumps(result, indent=2))
+    index = _load_history_index()
+    index.append({
+        "run_id": result["run_id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "region": result["region"],
+        "angle": result["angle"],
+        "trail_names": result["trail_names"],
+        "cover_slide": result["slides"][0] if result["slides"] else None,
+    })
+    HISTORY_INDEX.write_text(json.dumps(index, indent=2))
 
 
 @app.route("/")
@@ -207,10 +282,24 @@ def index():
 def api_generate():
     try:
         result = run_pipeline()
+        _save_history_entry(result)
         return jsonify(result)
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/history")
+def api_history():
+    return jsonify(list(reversed(_load_history_index())))
+
+
+@app.route("/api/history/<run_id>")
+def api_history_detail(run_id):
+    path = HISTORY_DIR / f"{run_id}.json"
+    if not path.exists():
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(json.loads(path.read_text()))
 
 
 @app.route("/output/web/<path:subpath>")

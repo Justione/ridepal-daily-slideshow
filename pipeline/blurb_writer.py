@@ -10,6 +10,8 @@ import os
 
 import anthropic
 
+from errors import ConfigError
+
 MODEL = "claude-sonnet-5"
 
 SYSTEM_PROMPT = """You write one-line marketing blurbs for RidePal, a mountain bike trail app, for an Instagram carousel format that has already been validated and approved.
@@ -35,7 +37,7 @@ You will be given a JSON object with the region, the angle (e.g. "hardest", "flo
 def _client():
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set.")
+        raise ConfigError("ANTHROPIC_API_KEY is not set.")
     return anthropic.Anthropic(api_key=key, timeout=30.0)
 
 

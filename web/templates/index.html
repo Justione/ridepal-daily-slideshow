@@ -161,6 +161,45 @@
     border: 1px dashed var(--border);
     border-radius: 14px;
   }
+
+  .clearance-box {
+    background: #3a2e1e;
+    border: 1px solid #6b5432;
+    color: #ffd8a8;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .clearance-box a { color: #ffe6bd; }
+
+  .history-section { margin-top: 56px; }
+  .history-section h2 {
+    font-size: 14px; color: var(--text-dim); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 16px;
+  }
+  .history-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+  }
+  .history-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    text-align: left;
+    padding: 0;
+    color: var(--text);
+    font-family: inherit;
+  }
+  .history-item:hover { border-color: var(--rp-green); }
+  .history-item img { width: 100%; display: block; background: #0c120f; }
+  .history-item .meta { padding: 10px 12px; }
+  .history-item .region { font-size: 13px; font-weight: 600; }
+  .history-item .sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -192,9 +231,56 @@
         live-verified region and trails &mdash; nothing is repeated within 14 days.
       </div>
     </div>
+
+    <div class="history-section">
+      <h2>Past slideshows</h2>
+      <div class="history-list" id="history-list"></div>
+    </div>
   </main>
 
 <script>
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderResult(data) {
+  const errorBox = document.getElementById('error-box');
+  const metaRow = document.getElementById('meta-row');
+  const results = document.getElementById('results');
+
+  errorBox.classList.remove('active');
+
+  document.getElementById('meta-region').textContent = data.region;
+  document.getElementById('meta-angle').textContent = data.angle;
+  document.getElementById('meta-trails').textContent = data.trail_names.join(', ');
+  metaRow.classList.add('active');
+
+  const slidesHtml = data.slides.map((src, i) => `
+    <div class="slide-card">
+      <img src="${src}" alt="Slide ${i+1}">
+      <a class="download" href="${src}" download>Download</a>
+    </div>
+  `).join('');
+
+  const clearanceHtml = data.photo_cleared ? '' : `
+    <div class="clearance-box">
+      Photo is NOT cleared to post. It was found on the open web, not a licensed stock
+      photo &mdash; get the photographer's permission via the source page before this goes up.
+      ${data.photo_source_page ? `<br>Source: <a href="${data.photo_source_page}" target="_blank" rel="noopener">${escapeHtml(data.photo_source_site || data.photo_source_page)}</a>` : ''}
+    </div>
+  `;
+
+  results.innerHTML = `
+    ${clearanceHtml}
+    <div class="slides">${slidesHtml}</div>
+    <div class="caption-box">
+      <h3>Caption</h3>
+      <textarea readonly id="caption-text">${data.caption}</textarea>
+      <div class="actions"><button class="copy" onclick="copyCaption()">Copy caption</button></div>
+    </div>
+  `;
+}
+
 async function generate() {
   const btn = document.getElementById('generate');
   const spinner = document.getElementById('spinner');
@@ -213,7 +299,7 @@ async function generate() {
   const statusSteps = [
     'Picking a real region and trails...',
     'Fetching real GPS trail geometry...',
-    'Sourcing a real regional photo...',
+    'Sourcing a real photo with a verified rider...',
     'Writing on-brand copy...',
     'Rendering slides...'
   ];
@@ -234,29 +320,8 @@ async function generate() {
       return;
     }
 
-    document.getElementById('meta-region').textContent = data.region;
-    document.getElementById('meta-angle').textContent = data.angle;
-    document.getElementById('meta-trails').textContent = data.trail_names.join(', ');
-    metaRow.classList.add('active');
-
-    const slidesHtml = data.slides.map((src, i) => `
-      <div class="slide-card">
-        <img src="${src}" alt="Slide ${i+1}">
-        <a class="download" href="${src}" download>Download</a>
-      </div>
-    `).join('');
-
-    results.innerHTML = `
-      <div class="slides">${slidesHtml}</div>
-      <div class="caption-box">
-        <h3>Caption</h3>
-        <textarea readonly id="caption-text">${data.caption}</textarea>
-        <div class="actions"><button class="copy" onclick="copyCaption()">Copy caption</button></div>
-      </div>
-      <div style="margin-top:16px; font-size:12px; color:var(--text-dim);">
-        Photo credit: ${data.photo_credit}
-      </div>
-    `;
+    renderResult(data);
+    loadHistory();
   } catch (e) {
     clearInterval(stepTimer);
     errorBox.textContent = 'Request failed: ' + e.message;
@@ -273,6 +338,39 @@ function copyCaption() {
   el.select();
   document.execCommand('copy');
 }
+
+async function loadHistory() {
+  const list = document.getElementById('history-list');
+  try {
+    const res = await fetch('/api/history');
+    const items = await res.json();
+    if (!items.length) {
+      list.innerHTML = '<div style="color:var(--text-dim); font-size:14px;">No past slideshows yet.</div>';
+      return;
+    }
+    list.innerHTML = items.map(item => `
+      <button class="history-item" onclick="openHistory('${item.run_id}')">
+        ${item.cover_slide ? `<img src="${item.cover_slide}" alt="${escapeHtml(item.region)}">` : ''}
+        <div class="meta">
+          <div class="region">${escapeHtml(item.region)}</div>
+          <div class="sub">${escapeHtml(item.angle)} &middot; ${new Date(item.created_at).toLocaleDateString()}</div>
+        </div>
+      </button>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = '<div style="color:var(--text-dim); font-size:14px;">Couldn\'t load history.</div>';
+  }
+}
+
+async function openHistory(runId) {
+  const res = await fetch('/api/history/' + runId);
+  if (!res.ok) return;
+  const data = await res.json();
+  renderResult(data);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+loadHistory();
 </script>
 </body>
 </html>
