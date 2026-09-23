@@ -5,6 +5,7 @@ Uses Jinja2 to fill the HTML templates in templates/, then Playwright
 so CSS shadows/gradients/rounded corners come out pixel-accurate instead
 of hand-composited.
 """
+import os
 import random
 import re
 from pathlib import Path
@@ -229,8 +230,17 @@ def render_carousel(slide_specs, out_dir):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = []
+    # In some cloud sandboxes the pre-installed Chromium revision doesn't
+    # match what the pinned playwright package expects at its default
+    # path, so a bare chromium.launch() fails there even though it's
+    # fine locally. Fall back to the container's own browser if present.
+    fallback_chromium = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE", "/opt/pw-browsers/chromium")
+    launch_kwargs = {"executable_path": fallback_chromium} if os.path.exists(fallback_chromium) else {}
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        try:
+            browser = p.chromium.launch()
+        except Exception:
+            browser = p.chromium.launch(**launch_kwargs)
         page = browser.new_page(viewport={"width": FRAME_W, "height": FRAME_H})
         for i, spec in enumerate(slide_specs, start=1):
             out_path = out_dir / f"slide_{i}.png"
