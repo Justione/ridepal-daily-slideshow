@@ -7,9 +7,19 @@ real trail concept. Follow every step — do not skip the verification
 steps to save time, and never invent a fact that isn't confirmed by a
 live source.
 
-Project root: `~/ridepal-daily-slideshow/`. Python env: `.venv` (activate
-with `source .venv/bin/activate` from the project root before running
-anything). All pipeline code is in `pipeline/`.
+Project root: wherever this repo was cloned to. All pipeline code is in
+`pipeline/`.
+
+## Step 0 — Set up the environment
+
+This is a fresh checkout with no installed dependencies yet:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+mkdir -p state assets/generated-maps output
+```
 
 ## The one hard rule
 
