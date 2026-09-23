@@ -69,6 +69,12 @@ def _search_candidates(query, api_key, cse_id, num=10):
         "safe": "active",
         "imgSize": "large",
     }, timeout=20)
+    if resp.status_code in (400, 403):
+        # A bad key, a disabled API, or a misconfigured search engine --
+        # this is a setup problem, not "no photos for this region", and
+        # retrying with a different region won't fix it.
+        detail = resp.json().get("error", {}).get("message", resp.text)
+        raise ConfigError(f"Google Custom Search API error ({resp.status_code}): {detail}")
     resp.raise_for_status()
     return resp.json().get("items", [])
 
@@ -114,6 +120,8 @@ def find_photo(region_query, fallback_queries=None, max_checked_per_tier=6):
     for q in queries:
         try:
             items = _search_candidates(f"{q} {QUERY_SUFFIX}", api_key, cse_id)
+        except ConfigError:
+            raise
         except requests.RequestException:
             continue
 
