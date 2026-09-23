@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="file://{{ base_css }}">
+<style>
+  .frame { background: #000; }
+  .scrim {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 26%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.92) 100%);
+  }
+  .content {
+    position: absolute;
+    left: 80px; right: 80px; bottom: 96px;
+    z-index: 10;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .slide-headline { color: #fff; text-shadow: 0 4px 24px rgba(0,0,0,0.4); margin-bottom: 30px; }
+  ul.facts { list-style: none; text-align: left; }
+  ul.facts li {
+    color: rgba(255,255,255,0.92);
+    font-weight: 600;
+    font-size: 27px;
+    line-height: 1.5;
+    padding-left: 34px;
+    position: relative;
+    margin-bottom: 14px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.4);
+  }
+  ul.facts li::before {
+    content: '';
+    position: absolute; left: 0; top: 14px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--rp-gps-green);
+  }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <img class="bg-photo" src="file://{{ photo }}">
+    <div class="scrim"></div>
+    <div class="logo-watermark pos-center"><img src="file://{{ logo }}"></div>
+    <div class="content">
+      <div class="slide-headline">{{ headline }}</div>
+      {% if facts %}
+      <ul class="facts">
+        {% for f in facts %}<li>{{ f }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

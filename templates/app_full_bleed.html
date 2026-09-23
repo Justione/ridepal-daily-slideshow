@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="file://{{ base_css }}">
+{% import '_icons.j2' as icon %}
+<style>
+  .frame { background: var(--rp-green-dark); }
+  .backdrop { position: absolute; inset: 0; filter: blur(2px) brightness(0.55) saturate(1.05); }
+  .backdrop-tint { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(21,42,34,0.55) 0%, rgba(12,24,19,0.88) 100%); }
+
+  .headline-block {
+    position: relative;
+    padding: 220px 64px 34px;
+    z-index: 5;
+  }
+  .headline-block .slide-headline { color: #fff; max-width: 820px; font-size: 72px; line-height: 1.1; }
+  .headline-block .slide-subhead { color: rgba(255,255,255,0.72); margin-top: 16px; max-width: 860px; }
+
+  /* the phone is oversized on purpose and left to bleed off the bottom
+     of the frame (cropped by .frame's overflow:hidden), matching the
+     reference: only the top of the screen shows, which is what frees up
+     room for the headline instead of cramming it against the top edge */
+  .phone-stage { position: absolute; top: {{ phone_top }}px; left: 0; right: 0; z-index: 5; display: flex; justify-content: center; }
+  .phone { --phone-w: {{ phone_w }}px; margin-left: 56px; }
+
+  .rp-map {
+    position: relative;
+    height: {{ (phone_w * 0.64) | round | int }}px;
+    overflow: hidden;
+    /* this map is much wider/shorter than the trail-card map, so a
+       gentler tilt avoids the off-axis perspective distortion that a
+       steep rotateX causes on an extreme-aspect-ratio plane */
+    --map-tilt-angle: 14deg;
+    --map-tilt-scale: 1.15;
+    --map-tilt-perspective: 2200px;
+    --map-tilt-inset-top: -40%;
+    --map-tilt-inset-x: -8%;
+  }
+  .rp-map .fade {
+    position: absolute; inset: 0; z-index: 4;
+    background: linear-gradient(180deg, rgba(0,0,0,0.32) 0%, rgba(0,0,0,0.02) 28%, rgba(0,0,0,0.6) 100%);
+  }
+  .rp-map .back {
+    position: absolute; z-index: 20;
+    top: {{ (phone_w * 0.1) | round | int }}px; left: {{ (phone_w * 0.055) | round | int }}px;
+    width: {{ (phone_w * 0.095) | round | int }}px; height: {{ (phone_w * 0.095) | round | int }}px;
+    border-radius: 50%; background: rgba(255,255,255,0.92);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .rp-map .diff-chip {
+    position: absolute; z-index: 20;
+    top: {{ (phone_w * 0.1) | round | int }}px; right: {{ (phone_w * 0.055) | round | int }}px;
+    display: flex; align-items: center; gap: {{ (phone_w*0.02)|round|int }}px;
+    background: rgba(255,255,255,0.95);
+    border-radius: 999px;
+    padding: {{ (phone_w*0.02)|round|int }}px {{ (phone_w*0.032)|round|int }}px {{ (phone_w*0.02)|round|int }}px {{ (phone_w*0.024)|round|int }}px;
+  }
+  .rp-map .diff-chip .label-stack { display: flex; flex-direction: column; line-height: 1.15; }
+  .rp-map .diff-chip .label-stack .name { font-weight: 800; font-size: {{ (phone_w*0.033)|round|int }}px; color: var(--rp-text); }
+  .rp-map .diff-chip .label-stack .sub { font-weight: 700; font-size: {{ (phone_w*0.02)|round|int }}px; letter-spacing: 0.06em; color: var(--rp-text-gray); }
+  .rp-map .diff-chip .sw { width: {{ (phone_w*0.03)|round|int }}px; height: {{ (phone_w*0.03)|round|int }}px; flex-shrink: 0; }
+  .rp-map .diff-chip .sw.circle { border-radius: 50%; background: var(--rp-diff-green); }
+  .rp-map .diff-chip .sw.square { border-radius: 4px; background: var(--rp-diff-blue); }
+  .rp-map .diff-chip .sw.diamond { background: var(--rp-diff-black); transform: rotate(45deg); border-radius: 2px; }
+  .rp-map .diff-chip .sw.diamond.red { background: var(--rp-diff-red); }
+  .rp-map .trail-name {
+    position: absolute; z-index: 20;
+    left: {{ (phone_w * 0.055) | round | int }}px; right: {{ (phone_w * 0.055) | round | int }}px;
+    bottom: {{ (phone_w * 0.11) | round | int }}px;
+    color: #fff; font-weight: 800; font-size: {{ (phone_w*0.078)|round|int }}px;
+    line-height: 1.05;
+    text-shadow: 0 3px 14px rgba(0,0,0,0.5);
+  }
+  .rp-map .bikes-ok {
+    position: absolute; z-index: 20;
+    left: {{ (phone_w * 0.055) | round | int }}px; bottom: {{ (phone_w * 0.045) | round | int }}px;
+    display: inline-flex; align-items: center; gap: {{ (phone_w*0.014)|round|int }}px;
+    background: rgba(255,255,255,0.5);
+    color: #fff; font-weight: 700; font-size: {{ (phone_w*0.03)|round|int }}px;
+    padding: {{ (phone_w*0.014)|round|int }}px {{ (phone_w*0.028)|round|int }}px; border-radius: 999px;
+  }
+
+  .rp-body { padding: {{ (phone_w*0.05)|round|int }}px {{ (phone_w*0.058)|round|int }}px; }
+  .rp-stats { display: flex; }
+  .rp-stats .stat { flex: 1; text-align: center; }
+  .rp-stats .stat:not(:last-child) { border-right: 1px solid #ECEFED; }
+  .rp-stats .stat .val { font-weight: 800; font-size: {{ (phone_w*0.048)|round|int }}px; color: var(--rp-text); margin-top: {{ (phone_w*0.014)|round|int }}px; }
+  .rp-stats .stat .lbl { font-weight: 600; font-size: {{ (phone_w*0.028)|round|int }}px; color: var(--rp-text-gray); margin-top: 2px; }
+
+  .divider { height: 1px; background: #ECEFED; margin: {{ (phone_w*0.04)|round|int }}px 0; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: {{ (phone_w*0.012)|round|int }}px 0; }
+  .row .left { display: flex; align-items: center; gap: {{ (phone_w*0.02)|round|int }}px; font-weight: 600; font-size: {{ (phone_w*0.034)|round|int }}px; color: var(--rp-text-gray); }
+  .row .right { font-weight: 800; font-size: {{ (phone_w*0.034)|round|int }}px; color: var(--rp-text); }
+  .section-title { font-weight: 800; font-size: {{ (phone_w*0.042)|round|int }}px; color: var(--rp-text); margin: {{ (phone_w*0.045)|round|int }}px 0 {{ (phone_w*0.02)|round|int }}px; }
+
+  .elev-head { display: flex; align-items: center; gap: {{ (phone_w*0.024)|round|int }}px; margin-top: {{ (phone_w*0.05)|round|int }}px; }
+  .elev-head .title { font-weight: 800; font-size: {{ (phone_w*0.042)|round|int }}px; color: var(--rp-text); }
+  .elev-head .pill { background: var(--rp-orange); color: #fff; font-weight: 700; font-size: {{ (phone_w*0.028)|round|int }}px; padding: {{ (phone_w*0.012)|round|int }}px {{ (phone_w*0.024)|round|int }}px; border-radius: 999px; }
+  .elev-chart { margin-top: {{ (phone_w*0.03)|round|int }}px; }
+
+  /* in the real app this button bar is a sticky floating card that stays
+     put near the bottom of the screen while the content behind it
+     scrolls -- so it sits at a fixed position over whatever content
+     happens to be there, not inline after Surface like a normal row */
+  .sticky-buttons {
+    position: absolute; z-index: 30;
+    left: {{ (phone_w*0.045)|round|int }}px; right: {{ (phone_w*0.045)|round|int }}px;
+    top: {{ sticky_buttons_top }}px;
+    background: #fff;
+    border-radius: {{ (phone_w*0.045)|round|int }}px;
+    padding: {{ (phone_w*0.03)|round|int }}px;
+    box-shadow: 0 {{ (phone_w*0.02)|round|int }}px {{ (phone_w*0.05)|round|int }}px rgba(0,0,0,0.22);
+  }
+  .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: {{ (phone_w*0.026)|round|int }}px; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: {{ (phone_w*0.016)|round|int }}px;
+    background: var(--rp-pill-gray); border-radius: {{ (phone_w*0.035)|round|int }}px; padding: {{ (phone_w*0.034)|round|int }}px; font-weight: 700; font-size: {{ (phone_w*0.034)|round|int }}px; color: var(--rp-text); }
+  .btn.primary { background: var(--rp-green); color: #fff; }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <img class="backdrop bg-photo" src="file://{{ photo }}">
+    <div class="backdrop-tint"></div>
+
+    <div class="logo-watermark pos-center"><img src="file://{{ logo }}"></div>
+
+    <div class="headline-block">
+      <div class="slide-headline">{{ headline }}</div>
+      <div class="slide-subhead">{{ subtext }}</div>
+    </div>
+
+    <div class="phone-stage">
+      <div class="phone">
+        <div class="phone-screen">
+          <div class="rp-map map3d">
+            <div class="map3d-viewport">
+              <div class="map3d-plane">
+                <img src="file://{{ map_image }}">
+                <svg viewBox="0 0 {{ phone_w }} {{ (phone_w*0.64)|round|int }}" preserveAspectRatio="none">
+                  <path d="{{ trace_path_full }}" fill="none" stroke="white" stroke-width="{{ (phone_w*0.017)|round|int }}" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+                  <path d="{{ trace_path_full }}" fill="none" stroke="#44E44E" stroke-width="{{ (phone_w*0.009)|round|int }}" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+            </div>
+            <div class="fade"></div>
+            <div class="statusbar">
+              <span>9:41</span>
+              <div class="icons">
+                {{ icon.signal_bars(color='#FFFFFF', size=phone_w*0.03) }}
+                {{ icon.wifi_icon(color='#FFFFFF', size=phone_w*0.03) }}
+                {{ icon.battery_icon(color='#FFFFFF', size=phone_w*0.03) }}
+              </div>
+            </div>
+            <div class="island"></div>
+            <div class="back">{{ icon.chevron_left(color='#111111', size=phone_w*0.045) }}</div>
+            <div class="diff-chip">
+              <span class="sw {{ difficulty_shape }}{% if difficulty == 'double_black' %} red{% endif %}"></span>
+              <span class="label-stack"><span class="name">{{ difficulty_label }}</span><span class="sub">DIFFICULTY</span></span>
+            </div>
+            <div class="trail-name">{{ trail_name }}</div>
+            {% if bikes_ok %}<div class="bikes-ok">{{ icon.check_circle(color='#2CA64A', size=phone_w*0.026) }} Bikes likely OK</div>{% endif %}
+          </div>
+
+          <div class="rp-body">
+            <div class="rp-stats">
+              <div class="stat">{{ icon.ruler(color='#234A38', size=phone_w*0.044) }}<div class="val">{{ distance }}</div><div class="lbl">Distance</div></div>
+              <div class="stat">{{ icon.mountain(color='#234A38', size=phone_w*0.044) }}<div class="val">{{ net_elevation }}</div><div class="lbl">Net Elevation</div></div>
+              <div class="stat">{{ icon.clock(color='#234A38', size=phone_w*0.044) }}<div class="val">{{ est_time }}</div><div class="lbl">Est. Time</div></div>
+            </div>
+            <div class="divider"></div>
+            <div class="row">
+              <div class="left">{{ icon.mountain(color='#8A8F8C', size=phone_w*0.038) }} Peak Elevation</div>
+              <div class="right">{{ peak_elevation }}</div>
+            </div>
+            <div class="section-title">Trail Details</div>
+            <div class="row">
+              <div class="left">{{ icon.mountain(color='#8A8F8C', size=phone_w*0.038) }} Technical Rating</div>
+              <div class="right">{{ difficulty_label }}</div>
+            </div>
+            <div class="row">
+              <div class="left">{{ icon.ruler(color='#8A8F8C', size=phone_w*0.038) }} Surface</div>
+              <div class="right">{{ surface }}</div>
+            </div>
+
+            <div class="elev-head">
+              <span class="title">Elevation</span>
+              <span class="pill">Downhill</span>
+            </div>
+            <svg class="elev-chart" width="{{ elevation_chart_w }}" height="{{ elevation_chart_h }}" viewBox="0 0 {{ elevation_chart_w }} {{ elevation_chart_h }}">
+              <defs>
+                <linearGradient id="elevFade" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#32664C" stop-opacity="0.35"/>
+                  <stop offset="100%" stop-color="#32664C" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path d="{{ elevation_area_path }}" fill="url(#elevFade)"/>
+              <path d="{{ elevation_line_path }}" fill="none" stroke="#32664C" stroke-width="{{ (phone_w*0.008)|round|int }}" stroke-linejoin="round" stroke-linecap="round"/>
+            </svg>
+          </div>
+
+          <div class="sticky-buttons">
+            <div class="btn-grid">
+              <div class="btn">{{ icon.bookmark(color='#111111', size=phone_w*0.04) }} Save</div>
+              <div class="btn">{{ icon.download(color='#111111', size=phone_w*0.04) }} Offline</div>
+              <div class="btn">{{ icon.car(color='#111111', size=phone_w*0.04) }} Drive</div>
+              <div class="btn primary">{{ icon.bike(color='#FFFFFF', size=phone_w*0.04) }} Bike There</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

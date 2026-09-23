@@ -1,0 +1,205 @@
+@font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; src: url('file:///Users/justinrausch/ridepal-daily-slideshow/assets/fonts/Inter-400.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 500; font-style: normal; src: url('file:///Users/justinrausch/ridepal-daily-slideshow/assets/fonts/Inter-500.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 600; font-style: normal; src: url('file:///Users/justinrausch/ridepal-daily-slideshow/assets/fonts/Inter-600.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 700; font-style: normal; src: url('file:///Users/justinrausch/ridepal-daily-slideshow/assets/fonts/Inter-700.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 800; font-style: normal; src: url('file:///Users/justinrausch/ridepal-daily-slideshow/assets/fonts/Inter-800.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 900; font-style: normal; src: url('file:///Users/justinrausch/ridepal-daily-slideshow/assets/fonts/Inter-900.woff2') format('woff2'); }
+
+:root {
+  --rp-green: #32664C;
+  --rp-green-dark: #234A38;
+  --rp-pill-gray: #E4E9E7;
+  --rp-diff-green: #2CA64A;
+  --rp-diff-blue: #0072D4;
+  --rp-diff-black: #1A1A1A;
+  --rp-diff-red: #CE2F33;
+  --rp-orange: #FF8C26;
+  --rp-muddy-bg: #FBC7CB;
+  --rp-muddy-text: #B0292F;
+  --rp-text: #111111;
+  --rp-text-gray: #8A8F8C;
+  --rp-gps-green: #44E44E;
+  --rp-white: #FFFFFF;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 1080px;
+  height: 1350px;
+  overflow: hidden;
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: #000;
+}
+
+.frame {
+  width: 1080px;
+  height: 1350px;
+  position: relative;
+  overflow: hidden;
+}
+
+.bg-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.logo-watermark {
+  position: absolute;
+  top: 56px;
+  z-index: 20;
+}
+.logo-watermark img {
+  height: 40px;
+  display: block;
+  filter: drop-shadow(0 2px 10px rgba(0,0,0,0.4));
+}
+.logo-watermark.pos-left { left: 56px; }
+.logo-watermark.pos-center { left: 50%; transform: translateX(-50%); }
+
+.difficulty-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(255,255,255,0.92);
+  border-radius: 999px;
+  padding: 14px 26px 14px 20px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}
+
+.difficulty-pill .swatch {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.difficulty-pill .swatch.circle { border-radius: 50%; background: var(--rp-diff-green); }
+.difficulty-pill .swatch.square { border-radius: 6px; background: var(--rp-diff-blue); }
+.difficulty-pill .swatch.diamond { background: var(--rp-diff-black); transform: rotate(45deg); border-radius: 3px; }
+.difficulty-pill .swatch.diamond.red { background: var(--rp-diff-red); }
+
+.difficulty-pill .label-stack { display: flex; flex-direction: column; line-height: 1.15; }
+.difficulty-pill .label-stack .name { font-weight: 800; font-size: 25px; color: var(--rp-text); }
+.difficulty-pill .label-stack .sub { font-weight: 700; font-size: 15px; letter-spacing: 0.06em; color: var(--rp-text-gray); }
+
+/* ---- shared outer type scale, kept identical across every slide type ---- */
+.slide-kicker { font-weight: 700; font-size: 22px; letter-spacing: 0.02em; }
+.slide-headline { font-weight: 800; font-size: 60px; line-height: 1.12; letter-spacing: -0.01em; }
+.slide-subhead { font-weight: 600; font-size: 26px; line-height: 1.4; }
+.slide-statline { font-weight: 700; font-size: 28px; }
+
+.content-centered {
+  position: absolute;
+  left: 80px; right: 80px;
+  z-index: 10;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ---- 2:3 rounded-rect app-UI preview card (no border), used on every
+   non-CTA trail slide; only the CTA slide gets the full phone mockup.
+   Shows real app chrome (map + difficulty pill + trail name + stat row)
+   the same way the app itself lays it out, just without a device bezel. ---- */
+.map-card {
+  position: relative;
+  width: var(--card-w, 520px);
+  aspect-ratio: 2 / 3;
+  border-radius: 32px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px rgba(0,0,0,0.45);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+.map-card .map3d { flex: 1 1 auto; min-height: 0; }
+.map-card .card-sheet {
+  position: relative;
+  z-index: 5;
+  flex: 0 0 auto;
+  background: #fff;
+  border-radius: 26px 26px 0 0;
+  margin-top: -26px;
+  box-shadow: 0 -10px 18px rgba(0,0,0,0.06);
+}
+
+/* ---- tilted 3D map plane: the satellite image + trail line render on a
+   perspective-rotated plane (like the app's own 3D terrain view), while
+   pill/chevron/name/text overlays stay flat on top, undistorted ---- */
+.map3d {
+  position: relative;
+  overflow: hidden;
+  background: #1c2418;
+}
+.map3d-viewport {
+  position: absolute;
+  inset: 0;
+  perspective: var(--map-tilt-perspective, 1400px);
+  perspective-origin: 50% 100%;
+}
+.map3d-plane {
+  position: absolute;
+  left: var(--map-tilt-inset-x, -15%); right: var(--map-tilt-inset-x, -15%);
+  top: var(--map-tilt-inset-top, -90%); bottom: 0;
+  transform-origin: 50% 100%;
+  transform: rotateX(var(--map-tilt-angle, 24deg)) scale(var(--map-tilt-scale, 1.4));
+}
+.map3d-plane img, .map3d-plane svg {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+}
+.map3d .fade {
+  position: absolute; inset: 0; z-index: 4;
+  background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.0) 22%, rgba(0,0,0,0.08) 62%, rgba(0,0,0,0.62) 100%);
+}
+
+/* ---- reusable device frame; size it by setting --phone-w on the instance ---- */
+.phone {
+  --pw: var(--phone-w, 420px);
+  width: var(--pw);
+  aspect-ratio: 0.4625;
+  background: linear-gradient(155deg, #38383b 0%, #0a0a0b 55%);
+  border-radius: calc(var(--pw) * 0.16);
+  padding: calc(var(--pw) * 0.026);
+  box-shadow:
+    0 calc(var(--pw) * 0.09) calc(var(--pw) * 0.16) rgba(0,0,0,0.5),
+    inset 0 0 0 1.5px rgba(255,255,255,0.09);
+  position: relative;
+}
+.phone-screen {
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  border-radius: calc(var(--pw) * 0.135);
+  overflow: hidden;
+  position: relative;
+}
+.phone .island {
+  position: absolute;
+  top: calc(var(--pw) * 0.042);
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(var(--pw) * 0.27);
+  height: calc(var(--pw) * 0.068);
+  background: #000;
+  border-radius: 999px;
+  z-index: 40;
+}
+.phone .statusbar {
+  position: absolute;
+  top: calc(var(--pw) * 0.018);
+  left: calc(var(--pw) * 0.085);
+  right: calc(var(--pw) * 0.085);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 35;
+  font-weight: 700;
+  font-size: calc(var(--pw) * 0.034);
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.phone .statusbar .icons { display: flex; align-items: center; gap: calc(var(--pw) * 0.014); }

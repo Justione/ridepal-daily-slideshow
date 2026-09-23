@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="file://{{ base_css }}">
+{% import '_icons.j2' as icon %}
+<style>
+  .frame { background: #0c120f; }
+  .backdrop { position: absolute; inset: 0; filter: blur(3px) brightness(0.35) saturate(1.05); }
+  .backdrop-tint { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(8,16,12,0.35) 0%, rgba(6,12,9,0.75) 100%); }
+
+  .stage {
+    position: absolute;
+    top: 168px;
+    left: 0; right: 0;
+    display: flex;
+    justify-content: center;
+    z-index: 5;
+  }
+  .map-card { --card-w: {{ card_w }}px; }
+
+  .back-btn {
+    position: absolute; z-index: 10;
+    top: 20px; left: 20px;
+    width: 46px; height: 46px; border-radius: 50%;
+    background: rgba(255,255,255,0.92);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .diff-chip {
+    position: absolute; z-index: 10;
+    top: 20px; right: 20px;
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.95);
+    border-radius: 999px;
+    padding: 10px 18px 10px 12px;
+    font-weight: 800; font-size: 17px; color: var(--rp-text);
+  }
+  .diff-chip .sw { width: 14px; height: 14px; flex-shrink: 0; }
+  .diff-chip .sw.circle { border-radius: 50%; background: var(--rp-diff-green); }
+  .diff-chip .sw.square { border-radius: 4px; background: var(--rp-diff-blue); }
+  .diff-chip .sw.diamond { background: var(--rp-diff-black); transform: rotate(45deg); border-radius: 2px; }
+  .diff-chip .sw.diamond.red { background: var(--rp-diff-red); }
+  .name-on-map {
+    position: absolute; z-index: 10;
+    left: 22px; right: 90px; bottom: 48px;
+    color: #fff; font-weight: 800; font-size: {{ (card_w*0.075)|round|int }}px;
+    line-height: 1.05;
+    text-shadow: 0 3px 14px rgba(0,0,0,0.5);
+  }
+  .flyover-btn {
+    position: absolute; z-index: 10;
+    right: 20px; bottom: 48px;
+    background: rgba(10,14,11,0.72);
+    border-radius: 14px;
+    padding: 10px 14px 8px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .flyover-btn span { color: #fff; font-weight: 700; font-size: 13px; }
+
+  .card-body { padding: 24px 26px 22px; }
+  .card-stats { display: flex; }
+  .card-stats .stat { flex: 1; text-align: center; }
+  .card-stats .stat:not(:last-child) { border-right: 1px solid #ECEFED; }
+  .card-stats .stat .val { font-weight: 800; font-size: {{ (card_w*0.052)|round|int }}px; color: var(--rp-text); margin-top: 8px; }
+  .card-stats .stat .lbl { font-weight: 600; font-size: {{ (card_w*0.032)|round|int }}px; color: var(--rp-text-gray); margin-top: 2px; }
+  .card-divider { height: 1px; background: #ECEFED; margin: 18px 0 16px; }
+  .card-peak { display: flex; align-items: center; justify-content: space-between; }
+  .card-peak .left { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: {{ (card_w*0.036)|round|int }}px; color: var(--rp-text-gray); }
+  .card-peak .right { font-weight: 800; font-size: {{ (card_w*0.036)|round|int }}px; color: var(--rp-text); }
+
+  .text-block {
+    position: absolute;
+    left: 90px; right: 90px;
+    top: {{ 168 + (card_w * 1.5) | round | int + 52 }}px;
+    z-index: 10;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .text-block .slide-headline { color: #fff; font-size: 66px; }
+  .text-block .blurb {
+    margin-top: 18px;
+    color: rgba(255,255,255,0.85);
+    font-weight: 600;
+    font-size: 32px;
+    line-height: 1.4;
+    max-width: 800px;
+  }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <img class="backdrop bg-photo" src="file://{{ photo }}">
+    <div class="backdrop-tint"></div>
+    <div class="logo-watermark pos-center"><img src="file://{{ logo }}"></div>
+
+    <div class="stage">
+      <div class="map-card">
+        <div class="map3d">
+          <div class="map3d-viewport">
+            <div class="map3d-plane">
+              <img src="file://{{ map_image }}">
+              <svg viewBox="0 0 {{ card_w }} {{ map_h }}" preserveAspectRatio="none">
+                <path d="{{ trace_path }}" fill="none" stroke="white" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+                <path d="{{ trace_path }}" fill="none" stroke="#44E44E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+          <div class="fade"></div>
+          <div class="back-btn">{{ icon.chevron_left(color='#111111', size=22) }}</div>
+          <div class="diff-chip">
+            <span class="sw {{ difficulty_shape }}{% if difficulty == 'double_black' %} red{% endif %}"></span>
+            {{ difficulty_label }}
+          </div>
+          <div class="name-on-map">{{ trail_name }}</div>
+          <div class="flyover-btn">{{ icon.play(color='#FFFFFF', size=16) }}<span>Flyover</span></div>
+        </div>
+        <div class="card-sheet">
+          <div class="card-body">
+            <div class="card-stats">
+              <div class="stat">
+                {{ icon.ruler(color='#234A38', size=card_w*0.05) }}
+                <div class="val">{{ distance }}</div>
+                <div class="lbl">Distance</div>
+              </div>
+              <div class="stat">
+                {{ icon.mountain(color='#234A38', size=card_w*0.05) }}
+                <div class="val">{{ elevation }}</div>
+                <div class="lbl">Elevation</div>
+              </div>
+              <div class="stat">
+                {{ icon.clock(color='#234A38', size=card_w*0.05) }}
+                <div class="val">{{ est_time }}</div>
+                <div class="lbl">Est. Time</div>
+              </div>
+            </div>
+            <div class="card-divider"></div>
+            <div class="card-peak">
+              <div class="left">{{ icon.mountain(color='#8A8F8C', size=card_w*0.04) }} Peak Elevation</div>
+              <div class="right">{{ peak_elevation }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-block">
+      <div class="slide-headline">{{ display_trail_name }}</div>
+      <div class="blurb">{{ blurb }}</div>
+    </div>
+  </div>
+</body>
+</html>
