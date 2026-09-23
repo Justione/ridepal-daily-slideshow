@@ -1,0 +1,19 @@
+{
+  "used_regions": [
+    {
+      "date": "2026-09-23",
+      "region_path": "/trails/canada/british-columbia/district-of-north-vancouver",
+      "difficulty_key": "double_black"
+    }
+  ],
+  "used_trails": [
+    {
+      "date": "2026-09-23",
+      "trail": "Rehab"
+    },
+    {
+      "date": "2026-09-23",
+      "trail": "Relapse"
+    }
+  ]
+}

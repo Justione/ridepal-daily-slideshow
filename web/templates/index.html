@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RidePal Slideshow Generator</title>
+<style>
+  :root {
+    --rp-green: #32664C;
+    --rp-green-dark: #1c3a2c;
+    --bg: #0c120f;
+    --card: #141c18;
+    --border: #223229;
+    --text: #eef3ef;
+    --text-dim: #93a39a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 28px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  header img { height: 34px; }
+  header h1 { font-size: 20px; font-weight: 700; margin: 0; }
+  header .sub { color: var(--text-dim); font-size: 14px; margin-left: 4px; }
+
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+
+  .generate-row {
+    display: flex; align-items: center; gap: 18px;
+    margin-bottom: 36px;
+    flex-wrap: wrap;
+  }
+  button#generate {
+    background: var(--rp-green);
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    padding: 18px 32px;
+    font-size: 17px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+  button#generate:hover { background: #3c7a5b; }
+  button#generate:active { transform: scale(0.98); }
+  button#generate:disabled { background: #2a3a32; color: var(--text-dim); cursor: not-allowed; }
+
+  .status {
+    color: var(--text-dim);
+    font-size: 15px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--rp-green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: none;
+  }
+  .spinner.active { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-box {
+    background: #3a1e1e;
+    border: 1px solid #6b3232;
+    color: #ffb4b4;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+    font-size: 14px;
+    display: none;
+    white-space: pre-wrap;
+  }
+  .error-box.active { display: block; }
+
+  .meta-row {
+    display: none;
+    gap: 24px;
+    margin-bottom: 24px;
+    font-size: 14px;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  .meta-row.active { display: flex; }
+  .meta-row b { color: var(--text); font-weight: 600; }
+
+  .slides {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 18px;
+    margin-bottom: 32px;
+  }
+  .slides img {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: block;
+    background: var(--card);
+  }
+  .slide-card { display: flex; flex-direction: column; gap: 8px; }
+  .slide-card a.download {
+    font-size: 12px;
+    color: var(--rp-green);
+    text-decoration: none;
+    text-align: center;
+  }
+  .slide-card a.download:hover { text-decoration: underline; }
+
+  .caption-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .caption-box h3 {
+    margin: 0 0 12px; font-size: 14px; color: var(--text-dim);
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .caption-box textarea {
+    width: 100%;
+    min-height: 160px;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    font-family: inherit;
+    resize: vertical;
+  }
+  .caption-box textarea:focus { outline: none; }
+  .caption-box .actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .caption-box button.copy {
+    background: var(--rp-green-dark);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .caption-box button.copy:hover { background: #24402f; }
+
+  .empty-state {
+    color: var(--text-dim);
+    font-size: 15px;
+    padding: 60px 0;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 14px;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <img src="/static/ridepal-logo.png" alt="RidePal">
+    <h1>Slideshow Generator</h1>
+    <span class="sub">internal tool</span>
+  </header>
+
+  <main>
+    <div class="generate-row">
+      <button id="generate" onclick="generate()">Generate slideshow</button>
+      <div class="status">
+        <span class="spinner" id="spinner"></span>
+        <span id="status-text"></span>
+      </div>
+    </div>
+
+    <div class="error-box" id="error-box"></div>
+
+    <div class="meta-row" id="meta-row">
+      <div><b id="meta-region"></b> &mdash; <span id="meta-angle"></span></div>
+      <div>Trails: <span id="meta-trails"></span></div>
+    </div>
+
+    <div id="results">
+      <div class="empty-state" id="empty-state">
+        Click "Generate slideshow" to create today's carousel. Every run picks a fresh,
+        live-verified region and trails &mdash; nothing is repeated within 14 days.
+      </div>
+    </div>
+  </main>
+
+<script>
+async function generate() {
+  const btn = document.getElementById('generate');
+  const spinner = document.getElementById('spinner');
+  const statusText = document.getElementById('status-text');
+  const errorBox = document.getElementById('error-box');
+  const metaRow = document.getElementById('meta-row');
+  const results = document.getElementById('results');
+
+  btn.disabled = true;
+  spinner.classList.add('active');
+  errorBox.classList.remove('active');
+  metaRow.classList.remove('active');
+  statusText.textContent = 'Picking a real region and trails...';
+  results.innerHTML = '';
+
+  const statusSteps = [
+    'Picking a real region and trails...',
+    'Fetching real GPS trail geometry...',
+    'Sourcing a real regional photo...',
+    'Writing on-brand copy...',
+    'Rendering slides...'
+  ];
+  let stepIdx = 0;
+  const stepTimer = setInterval(() => {
+    stepIdx = Math.min(stepIdx + 1, statusSteps.length - 1);
+    statusText.textContent = statusSteps[stepIdx];
+  }, 4000);
+
+  try {
+    const res = await fetch('/api/generate', { method: 'POST' });
+    const data = await res.json();
+    clearInterval(stepTimer);
+
+    if (!res.ok) {
+      errorBox.textContent = data.error || 'Something went wrong.';
+      errorBox.classList.add('active');
+      return;
+    }
+
+    document.getElementById('meta-region').textContent = data.region;
+    document.getElementById('meta-angle').textContent = data.angle;
+    document.getElementById('meta-trails').textContent = data.trail_names.join(', ');
+    metaRow.classList.add('active');
+
+    const slidesHtml = data.slides.map((src, i) => `
+      <div class="slide-card">
+        <img src="${src}" alt="Slide ${i+1}">
+        <a class="download" href="${src}" download>Download</a>
+      </div>
+    `).join('');
+
+    results.innerHTML = `
+      <div class="slides">${slidesHtml}</div>
+      <div class="caption-box">
+        <h3>Caption</h3>
+        <textarea readonly id="caption-text">${data.caption}</textarea>
+        <div class="actions"><button class="copy" onclick="copyCaption()">Copy caption</button></div>
+      </div>
+      <div style="margin-top:16px; font-size:12px; color:var(--text-dim);">
+        Photo credit: ${data.photo_credit}
+      </div>
+    `;
+  } catch (e) {
+    clearInterval(stepTimer);
+    errorBox.textContent = 'Request failed: ' + e.message;
+    errorBox.classList.add('active');
+  } finally {
+    btn.disabled = false;
+    spinner.classList.remove('active');
+    statusText.textContent = '';
+  }
+}
+
+function copyCaption() {
+  const el = document.getElementById('caption-text');
+  el.select();
+  document.execCommand('copy');
+}
+</script>
+</body>
+</html>

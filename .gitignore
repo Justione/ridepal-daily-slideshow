@@ -4,3 +4,6 @@ __pycache__/
 .DS_Store
 output/
 assets/generated-maps/
+.env
+assets/daily-photos/
+web/static/generated/
