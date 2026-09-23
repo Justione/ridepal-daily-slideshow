@@ -7,3 +7,5 @@ assets/generated-maps/
 .env
 assets/daily-photos/
 web/static/generated/
+state/history/
+state/history_index.json
