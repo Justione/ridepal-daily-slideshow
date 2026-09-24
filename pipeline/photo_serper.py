@@ -14,11 +14,18 @@ photos found on the open web via Google Images, not stock photos
 cleared for reuse -- `cleared` is always False. Get the photographer's
 permission via the source page before posting.
 
+Rather than accepting the first candidate with a visible rider, every
+candidate in a tier gets scored by Claude vision on both image quality
+and how serious/skilled the riding action is, and the best-scoring one
+wins -- a low bar ("yes, there's a bike") wasn't good enough, since nothing
+here should ship as a low-effort snapshot.
+
 Requires SERPER_API_KEY (serper.dev -- 2,500 free queries, no credit
 card required, then paid) and ANTHROPIC_API_KEY (for the vision check).
 """
 import base64
 import os
+import re
 from pathlib import Path
 
 import anthropic
@@ -33,10 +40,25 @@ QUERY_SUFFIX = "mountain biker riding trail"
 
 SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
-RIDER_CHECK_PROMPT = (
-    "Does this photo clearly show a person riding a mountain bike "
-    "(a visible rider actively on the bike, not just a bike alone or an "
-    "empty trail)? Answer with exactly one word: yes or no."
+# Below this, a photo is rejected even if it's the best of a bad batch --
+# the tier's fallback (or the app's own retry-a-different-region logic)
+# is preferred over shipping a mediocre photo.
+MIN_PHOTO_SCORE = 6
+
+QUALITY_ACTION_PROMPT = (
+    "Rate this photo from 0 to 10 for use as hero marketing imagery for a "
+    "mountain biking app.\n\n"
+    "Score 0 if there is no mountain biker clearly and actively visible "
+    "riding a bike in the photo.\n\n"
+    "Otherwise, score based on both of these:\n"
+    "- Image quality: sharp, well exposed, well composed, looks like real "
+    "action photography. Blurry, dark, low-resolution, or amateur "
+    "snapshot-looking photos score low.\n"
+    "- How serious and skilled the riding is: a big jump, a drop, a rider "
+    "sending it through a technical rock garden, a steep fast downhill "
+    "run, or hard berms at speed score highest. A rider casually pedaling "
+    "on a flat or easy path scores low even if the photo itself is sharp.\n\n"
+    "Respond with ONLY a single integer from 0 to 10, nothing else."
 )
 
 
@@ -85,28 +107,35 @@ def _download_image(url, max_bytes=15_000_000):
     return resp.content, content_type
 
 
-def _has_visible_rider(image_bytes, media_type, client):
-    b64 = base64.b64encode(image_bytes).decode()
+def _score_photo(image_bytes, media_type, client):
     message = client.messages.create(
         model=VISION_MODEL,
         max_tokens=10,
         messages=[{
             "role": "user",
             "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                {"type": "text", "text": RIDER_CHECK_PROMPT},
+                {"type": "image", "source": {
+                    "type": "base64", "media_type": media_type,
+                    "data": base64.b64encode(image_bytes).decode(),
+                }},
+                {"type": "text", "text": QUALITY_ACTION_PROMPT},
             ],
         }],
     )
-    answer = message.content[0].text.strip().lower()
-    return answer.startswith("yes")
+    # The model can emit a thinking block ahead of the text block, so the
+    # text isn't reliably content[0] -- find the actual text block.
+    text_block = next(b for b in message.content if b.type == "text")
+    match = re.search(r"\d+", text_block.text)
+    return int(match.group()) if match else 0
 
 
-def find_photo(region_query, fallback_queries=None, max_checked_per_tier=6):
+def find_photo(region_query, fallback_queries=None, max_checked_per_tier=8):
     """Searches real Google Images results (region, then each fallback
-    query in order), downloads candidates, and returns the first one
-    Claude actually confirms has a visible rider on a bike. Returns None
-    if nothing verified across every tier.
+    query in order). Within each tier, every candidate is downloaded and
+    scored by Claude vision for quality and how serious the riding action
+    is, and the best-scoring candidate that clears MIN_PHOTO_SCORE wins --
+    not just the first one with a rider in it. Returns None if nothing
+    across every tier clears the bar.
     """
     api_key = _api_key()
     client = _anthropic_client()
@@ -120,6 +149,7 @@ def find_photo(region_query, fallback_queries=None, max_checked_per_tier=6):
         except requests.RequestException:
             continue
 
+        candidates = []
         for item in items[:max_checked_per_tier]:
             image_url = item.get("imageUrl")
             if not image_url:
@@ -131,19 +161,26 @@ def find_photo(region_query, fallback_queries=None, max_checked_per_tier=6):
             if not content:
                 continue
             try:
-                if not _has_visible_rider(content, media_type, client):
-                    continue
+                score = _score_photo(content, media_type, client)
             except Exception:
                 continue
+            if score > 0:
+                candidates.append((score, item, content, media_type))
 
+        if not candidates:
+            continue
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        best_score, best_item, best_content, best_media_type = candidates[0]
+        if best_score >= MIN_PHOTO_SCORE:
             return {
-                "bytes": content,
-                "content_type": media_type,
-                "source_page": item.get("link"),
-                "source_site": item.get("domain") or item.get("source"),
-                "title": item.get("title"),
+                "bytes": best_content,
+                "content_type": best_media_type,
+                "source_page": best_item.get("link"),
+                "source_site": best_item.get("domain") or best_item.get("source"),
+                "title": best_item.get("title"),
                 "matched_query": q,
                 "cleared": False,
+                "quality_score": best_score,
             }
 
     return None

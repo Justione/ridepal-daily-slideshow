@@ -147,7 +147,10 @@ def _attempt_pipeline(avoid_regions):
         photo_serper.save_photo(photo, photo_path)
 
         # On-brand copy, grounded only in the real stats/description above
-        copy = blurb_writer.write_copy(region_display, angle_label, trails)
+        region_state, region_country = fallback_queries
+        copy = blurb_writer.write_copy(
+            region_display, angle_label, trails,
+            region_state=region_state, region_country=region_country)
     except ConfigError:
         raise
     except RuntimeError as e:
