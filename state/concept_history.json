@@ -24,6 +24,11 @@
       "date": "2026-09-23",
       "region_path": "/trails/us/arizona/sedona",
       "difficulty_key": "green"
+    },
+    {
+      "date": "2026-09-23",
+      "region_path": "/trails/us/vermont/stowe",
+      "difficulty_key": "blue"
     }
   ],
   "used_trails": [
@@ -74,6 +79,18 @@
     {
       "date": "2026-09-23",
       "trail": "Anaconda Bypass"
+    },
+    {
+      "date": "2026-09-23",
+      "trail": "Hardy Haul"
+    },
+    {
+      "date": "2026-09-23",
+      "trail": "TUCXS (Teds Unicorn Express)"
+    },
+    {
+      "date": "2026-09-23",
+      "trail": "Callagy's"
     }
   ]
 }
