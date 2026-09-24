@@ -39,6 +39,11 @@
       "date": "2026-09-24",
       "region_path": "/trails/us/utah/ogden",
       "difficulty_key": "blue"
+    },
+    {
+      "date": "2026-09-24",
+      "region_path": "/trails/canada/british-columbia/squamish",
+      "difficulty_key": "double_black"
     }
   ],
   "used_trails": [
@@ -125,6 +130,18 @@
     {
       "date": "2026-09-24",
       "trail": "Needles"
+    },
+    {
+      "date": "2026-09-24",
+      "trail": "Intestinal Fortitude."
+    },
+    {
+      "date": "2026-09-24",
+      "trail": "In and Out Burger"
+    },
+    {
+      "date": "2026-09-24",
+      "trail": "K-Line"
     }
   ]
 }
