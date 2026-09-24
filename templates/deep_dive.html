@@ -40,7 +40,7 @@
 </head>
 <body>
   <div class="frame">
-    <img class="bg-photo" src="file://{{ photo }}">
+    <img class="bg-photo" src="file://{{ photo }}" style="object-position: {{ photo_object_position | default('center') }};">
     <div class="scrim"></div>
     <div class="logo-watermark pos-center"><img src="file://{{ logo }}"></div>
     <div class="content">

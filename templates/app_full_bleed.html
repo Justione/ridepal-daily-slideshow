@@ -120,7 +120,7 @@
 </head>
 <body>
   <div class="frame">
-    <img class="backdrop bg-photo" src="file://{{ photo }}">
+    <img class="backdrop bg-photo" src="file://{{ photo }}" style="object-position: {{ photo_object_position | default('center') }};">
     <div class="backdrop-tint"></div>
 
     <div class="logo-watermark pos-center"><img src="file://{{ logo }}"></div>

@@ -145,6 +145,10 @@ def _attempt_pipeline(avoid_regions):
         ext = CONTENT_TYPE_EXT.get(photo["content_type"], ".jpg")
         photo_path = DAILY_PHOTOS / f"{run_id}{ext}"
         photo_serper.save_photo(photo, photo_path)
+        # Crop toward the rider's actual position, not the image's
+        # geometric center -- a wide shot with an off-center rider was
+        # getting center-cropped down to empty sky/ground otherwise.
+        photo_object_position = f"{photo.get('focal_x', 50)}% {photo.get('focal_y', 50)}%"
 
         # On-brand copy, grounded only in the real stats/description above
         region_state, region_country = fallback_queries
@@ -160,12 +164,14 @@ def _attempt_pipeline(avoid_regions):
     slides = [{
         "type": "cover",
         "photo": str(photo_path),
+        "photo_object_position": photo_object_position,
         "headline": copy["cover_headline"],
     }]
     for t in trails[:3]:
         slides.append({
             "type": "trail_card",
             "photo": str(photo_path),
+            "photo_object_position": photo_object_position,
             "card_w": 520,
             "trail_name": t["trail_name"],
             "difficulty": _difficulty_key(t["difficulty_label"]),
@@ -183,6 +189,7 @@ def _attempt_pipeline(avoid_regions):
     slides.append({
         "type": "app_full_bleed",
         "photo": str(photo_path),
+        "photo_object_position": photo_object_position,
         "headline": "Find trails like this on RidePal.",
         "subtext": "The app that shows you the best trails to ride no matter where you go.",
         "trail_name": hero["trail_name"],

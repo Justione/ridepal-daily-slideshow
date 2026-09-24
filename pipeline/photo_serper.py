@@ -18,7 +18,11 @@ Rather than accepting the first candidate with a visible rider, every
 candidate in a tier gets scored by Claude vision on both image quality
 and how serious/skilled the riding action is, and the best-scoring one
 wins -- a low bar ("yes, there's a bike") wasn't good enough, since nothing
-here should ship as a low-effort snapshot.
+here should ship as a low-effort snapshot. The same vision call also
+locates the rider in the frame (focal_x/focal_y), since the render step
+crops every photo into a tall portrait frame -- a wide shot with the
+rider off to one side would otherwise get center-cropped down to empty
+sky or ground.
 
 Requires SERPER_API_KEY (serper.dev -- 2,500 free queries, no credit
 card required, then paid) and ANTHROPIC_API_KEY (for the vision check).
@@ -46,19 +50,27 @@ SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 MIN_PHOTO_SCORE = 6
 
 QUALITY_ACTION_PROMPT = (
-    "Rate this photo from 0 to 10 for use as hero marketing imagery for a "
-    "mountain biking app.\n\n"
-    "Score 0 if there is no mountain biker clearly and actively visible "
-    "riding a bike in the photo.\n\n"
-    "Otherwise, score based on both of these:\n"
-    "- Image quality: sharp, well exposed, well composed, looks like real "
-    "action photography. Blurry, dark, low-resolution, or amateur "
-    "snapshot-looking photos score low.\n"
-    "- How serious and skilled the riding is: a big jump, a drop, a rider "
-    "sending it through a technical rock garden, a steep fast downhill "
-    "run, or hard berms at speed score highest. A rider casually pedaling "
-    "on a flat or easy path scores low even if the photo itself is sharp.\n\n"
-    "Respond with ONLY a single integer from 0 to 10, nothing else."
+    "Analyze this photo for use as hero marketing imagery for a mountain "
+    "biking app. It will be cropped into a TALL PORTRAIT frame, so only a "
+    "vertical slice of this image will actually be shown -- knowing where "
+    "the rider sits in the frame matters as much as the rating.\n\n"
+    "Respond with ONLY three integers separated by commas, nothing else, "
+    "in this exact order:\n"
+    "1. score (0 to 10): score 0 if there is no mountain biker clearly and "
+    "actively visible riding a bike. Otherwise score both image quality "
+    "(sharp, well exposed, well composed, looks like real action "
+    "photography; blurry, dark, low-resolution, or amateur snapshots "
+    "score low) and how serious/skilled the riding is (a big jump, a "
+    "drop, a technical rock garden, a steep fast downhill run, or hard "
+    "berms at speed score highest; casual pedaling on flat/easy ground "
+    "scores low even if the photo itself is sharp).\n"
+    "2. focal_x (0 to 100): the rider's horizontal position as a percent "
+    "of image width from the left edge (0 = far left, 50 = center, "
+    "100 = far right). Use 50 if there is no rider.\n"
+    "3. focal_y (0 to 100): the rider's vertical position as a percent of "
+    "image height from the top edge (0 = top, 50 = middle, 100 = bottom). "
+    "Use 50 if there is no rider.\n\n"
+    "Example response: 8,72,45"
 )
 
 
@@ -107,10 +119,15 @@ def _download_image(url, max_bytes=15_000_000):
     return resp.content, content_type
 
 
-def _score_photo(image_bytes, media_type, client):
+def _evaluate_photo(image_bytes, media_type, client):
+    """Returns (score, focal_x, focal_y). focal_x/focal_y locate the rider
+    in the frame (0-100, percent from the left/top) so the render step can
+    crop toward the actual subject instead of blindly centering -- a wide
+    action shot with the rider off to one side would otherwise get
+    cropped down to empty sky or ground in the portrait frame."""
     message = client.messages.create(
         model=VISION_MODEL,
-        max_tokens=10,
+        max_tokens=20,
         messages=[{
             "role": "user",
             "content": [
@@ -125,8 +142,11 @@ def _score_photo(image_bytes, media_type, client):
     # The model can emit a thinking block ahead of the text block, so the
     # text isn't reliably content[0] -- find the actual text block.
     text_block = next(b for b in message.content if b.type == "text")
-    match = re.search(r"\d+", text_block.text)
-    return int(match.group()) if match else 0
+    numbers = [int(n) for n in re.findall(r"\d+", text_block.text)]
+    if len(numbers) < 3:
+        return 0, 50, 50
+    score, focal_x, focal_y = numbers[:3]
+    return score, max(0, min(100, focal_x)), max(0, min(100, focal_y))
 
 
 def find_photo(region_query, fallback_queries=None, max_checked_per_tier=8):
@@ -161,16 +181,16 @@ def find_photo(region_query, fallback_queries=None, max_checked_per_tier=8):
             if not content:
                 continue
             try:
-                score = _score_photo(content, media_type, client)
+                score, focal_x, focal_y = _evaluate_photo(content, media_type, client)
             except Exception:
                 continue
             if score > 0:
-                candidates.append((score, item, content, media_type))
+                candidates.append((score, focal_x, focal_y, item, content, media_type))
 
         if not candidates:
             continue
         candidates.sort(key=lambda c: c[0], reverse=True)
-        best_score, best_item, best_content, best_media_type = candidates[0]
+        best_score, focal_x, focal_y, best_item, best_content, best_media_type = candidates[0]
         if best_score >= MIN_PHOTO_SCORE:
             return {
                 "bytes": best_content,
@@ -181,6 +201,8 @@ def find_photo(region_query, fallback_queries=None, max_checked_per_tier=8):
                 "matched_query": q,
                 "cleared": False,
                 "quality_score": best_score,
+                "focal_x": focal_x,
+                "focal_y": focal_y,
             }
 
     return None
