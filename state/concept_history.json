@@ -29,6 +29,16 @@
       "date": "2026-09-23",
       "region_path": "/trails/us/vermont/stowe",
       "difficulty_key": "blue"
+    },
+    {
+      "date": "2026-09-23",
+      "region_path": "/trails/us/colorado/crested-butte",
+      "difficulty_key": "double_black"
+    },
+    {
+      "date": "2026-09-24",
+      "region_path": "/trails/us/utah/ogden",
+      "difficulty_key": "blue"
     }
   ],
   "used_trails": [
@@ -91,6 +101,30 @@
     {
       "date": "2026-09-23",
       "trail": "Callagy's"
+    },
+    {
+      "date": "2026-09-23",
+      "trail": "Upper Upper Trail #435.1"
+    },
+    {
+      "date": "2026-09-23",
+      "trail": "Roaring Judy Road"
+    },
+    {
+      "date": "2026-09-23",
+      "trail": "Gunsite Pass Road"
+    },
+    {
+      "date": "2026-09-24",
+      "trail": "Middle Bowl"
+    },
+    {
+      "date": "2026-09-24",
+      "trail": "Jumpoff Canyon Trail"
+    },
+    {
+      "date": "2026-09-24",
+      "trail": "Needles"
     }
   ]
 }

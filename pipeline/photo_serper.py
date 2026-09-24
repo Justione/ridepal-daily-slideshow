@@ -1,4 +1,4 @@
-"""Sources real regional MTB action photography via Serper.dev's Google
+"""Sources real regional action photography via Serper.dev's Google
 Images API. Google's own Custom Search JSON API stopped granting access
 to new projects (confirmed: enabling it, scoping it to specific sites,
 fixing API key restrictions -- none of it mattered, the project itself
@@ -6,8 +6,14 @@ is refused access), so this proxies real Google Images results through
 a cheap third-party service instead: still literally Google's index,
 just accessed through a vendor Google itself points traffic through
 rather than a free direct API. Every candidate is then verified by
-Claude vision before acceptance so a rider is confirmed visible in the
-pixels, not just implied by a query or a page's alt text.
+Claude vision before acceptance so the subject (e.g. a mountain biker,
+per the app config) is confirmed visible in the pixels, not just implied
+by a query or a page's alt text.
+
+What counts as the subject (activity, subject noun, action phrase)
+comes from an app config (e.g. apps/ridepal.py) rather than being
+hardcoded here, so this module works for any app that plugs in its own
+config.
 
 Every photo returned here is UNLICENSED for posting. These are real
 photos found on the open web via Google Images, not stock photos
@@ -40,8 +46,6 @@ from errors import ConfigError
 API_URL = "https://google.serper.dev/images"
 VISION_MODEL = "claude-sonnet-5"
 
-QUERY_SUFFIX = "mountain biker riding trail"
-
 SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 # Below this, a photo is rejected even if it's the best of a bad batch --
@@ -49,29 +53,34 @@ SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 # is preferred over shipping a mediocre photo.
 MIN_PHOTO_SCORE = 6
 
-QUALITY_ACTION_PROMPT = (
-    "Analyze this photo for use as hero marketing imagery for a mountain "
-    "biking app. It will be cropped into a TALL PORTRAIT frame, so only a "
-    "vertical slice of this image will actually be shown -- knowing where "
-    "the rider sits in the frame matters as much as the rating.\n\n"
-    "Respond with ONLY three integers separated by commas, nothing else, "
-    "in this exact order:\n"
-    "1. score (0 to 10): score 0 if there is no mountain biker clearly and "
-    "actively visible riding a bike. Otherwise score both image quality "
-    "(sharp, well exposed, well composed, looks like real action "
-    "photography; blurry, dark, low-resolution, or amateur snapshots "
-    "score low) and how serious/skilled the riding is (a big jump, a "
-    "drop, a technical rock garden, a steep fast downhill run, or hard "
-    "berms at speed score highest; casual pedaling on flat/easy ground "
-    "scores low even if the photo itself is sharp).\n"
-    "2. focal_x (0 to 100): the rider's horizontal position as a percent "
-    "of image width from the left edge (0 = far left, 50 = center, "
-    "100 = far right). Use 50 if there is no rider.\n"
-    "3. focal_y (0 to 100): the rider's vertical position as a percent of "
-    "image height from the top edge (0 = top, 50 = middle, 100 = bottom). "
-    "Use 50 if there is no rider.\n\n"
-    "Example response: 8,72,45"
-)
+
+def _quality_action_prompt(app_config):
+    subject = app_config.SUBJECT
+    action = app_config.SUBJECT_ACTION
+    return (
+        f"Analyze this photo for use as hero marketing imagery for a "
+        f"{app_config.ACTIVITY} app. It will be cropped into a TALL "
+        f"PORTRAIT frame, so only a vertical slice of this image will "
+        f"actually be shown -- knowing where the {subject} sits in the "
+        f"frame matters as much as the rating.\n\n"
+        "Respond with ONLY three integers separated by commas, nothing else, "
+        "in this exact order:\n"
+        f"1. score (0 to 10): score 0 if there is no {subject} clearly and "
+        f"actively visible {action}. Otherwise score both image quality "
+        "(sharp, well exposed, well composed, looks like real action "
+        "photography; blurry, dark, low-resolution, or amateur snapshots "
+        f"score low) and how serious/skilled the {subject} is (a big jump, a "
+        "drop, a technical rock garden, a steep fast downhill run, or hard "
+        f"berms at speed score highest; casually {action} on flat/easy "
+        "ground scores low even if the photo itself is sharp).\n"
+        f"2. focal_x (0 to 100): the {subject}'s horizontal position as a "
+        "percent of image width from the left edge (0 = far left, "
+        f"50 = center, 100 = far right). Use 50 if there is no {subject}.\n"
+        f"3. focal_y (0 to 100): the {subject}'s vertical position as a "
+        "percent of image height from the top edge (0 = top, 50 = middle, "
+        f"100 = bottom). Use 50 if there is no {subject}.\n\n"
+        "Example response: 8,72,45"
+    )
 
 
 def _api_key():
@@ -119,12 +128,13 @@ def _download_image(url, max_bytes=15_000_000):
     return resp.content, content_type
 
 
-def _evaluate_photo(image_bytes, media_type, client):
-    """Returns (score, focal_x, focal_y). focal_x/focal_y locate the rider
-    in the frame (0-100, percent from the left/top) so the render step can
-    crop toward the actual subject instead of blindly centering -- a wide
-    action shot with the rider off to one side would otherwise get
-    cropped down to empty sky or ground in the portrait frame."""
+def _evaluate_photo(image_bytes, media_type, client, app_config):
+    """Returns (score, focal_x, focal_y). focal_x/focal_y locate the
+    subject in the frame (0-100, percent from the left/top) so the render
+    step can crop toward the actual subject instead of blindly centering
+    -- a wide action shot with the subject off to one side would
+    otherwise get cropped down to empty sky or ground in the portrait
+    frame."""
     message = client.messages.create(
         model=VISION_MODEL,
         max_tokens=20,
@@ -135,7 +145,7 @@ def _evaluate_photo(image_bytes, media_type, client):
                     "type": "base64", "media_type": media_type,
                     "data": base64.b64encode(image_bytes).decode(),
                 }},
-                {"type": "text", "text": QUALITY_ACTION_PROMPT},
+                {"type": "text", "text": _quality_action_prompt(app_config)},
             ],
         }],
     )
@@ -149,13 +159,17 @@ def _evaluate_photo(image_bytes, media_type, client):
     return score, max(0, min(100, focal_x)), max(0, min(100, focal_y))
 
 
-def find_photo(region_query, fallback_queries=None, max_checked_per_tier=8):
+def find_photo(region_query, app_config, fallback_queries=None, max_checked_per_tier=8):
     """Searches real Google Images results (region, then each fallback
     query in order). Within each tier, every candidate is downloaded and
-    scored by Claude vision for quality and how serious the riding action
-    is, and the best-scoring candidate that clears MIN_PHOTO_SCORE wins --
-    not just the first one with a rider in it. Returns None if nothing
-    across every tier clears the bar.
+    scored by Claude vision for quality and how serious the action is,
+    and the best-scoring candidate that clears MIN_PHOTO_SCORE wins --
+    not just the first one with the subject in it. Returns None if
+    nothing across every tier clears the bar.
+
+    app_config: a module like apps/ridepal.py, supplying ACTIVITY,
+    SUBJECT, and SUBJECT_ACTION to steer the search query and the vision
+    quality/action check toward the right subject.
     """
     api_key = _api_key()
     client = _anthropic_client()
@@ -163,7 +177,7 @@ def find_photo(region_query, fallback_queries=None, max_checked_per_tier=8):
     queries = [region_query] + (fallback_queries or [])
     for q in queries:
         try:
-            items = _search_candidates(f"{q} {QUERY_SUFFIX}", api_key)
+            items = _search_candidates(f"{q} {app_config.PHOTO_SEARCH_SUFFIX}", api_key)
         except ConfigError:
             raise
         except requests.RequestException:
@@ -181,7 +195,7 @@ def find_photo(region_query, fallback_queries=None, max_checked_per_tier=8):
             if not content:
                 continue
             try:
-                score, focal_x, focal_y = _evaluate_photo(content, media_type, client)
+                score, focal_x, focal_y = _evaluate_photo(content, media_type, client, app_config)
             except Exception:
                 continue
             if score > 0:

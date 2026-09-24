@@ -18,31 +18,6 @@ import trail_data
 ROOT = Path(__file__).resolve().parent.parent
 STATE_FILE = ROOT / "state" / "concept_history.json"
 
-# Well-known real MTB destinations. This is a starting seed, not a source
-# of truth -- every entry gets its ridepal.app region URL VERIFIED live
-# (see resolve_region below) before it's ever used. An entry that 404s or
-# comes back empty is skipped for that run, not guessed around.
-CANDIDATE_REGIONS = [
-    "/trails/canada/british-columbia/district-of-north-vancouver",
-    "/trails/canada/british-columbia/whistler",
-    "/trails/canada/british-columbia/squamish",
-    "/trails/us/utah/moab",
-    "/trails/us/utah/park-city",
-    "/trails/us/utah/ogden",
-    "/trails/us/colorado/fruita",
-    "/trails/us/colorado/crested-butte",
-    "/trails/us/oregon/bend",
-    "/trails/us/washington/bellingham",
-    "/trails/us/arizona/sedona",
-    "/trails/us/arkansas/bentonville",
-    "/trails/us/north-carolina/pisgah-forest",
-    "/trails/us/vermont/stowe",
-    "/trails/us/california/mammoth-lakes",
-    "/trails/us/california/downieville",
-    "/trails/us/idaho/sun-valley",
-    "/trails/us/west-virginia/davis",
-]
-
 # A ranked-list post needs this many real trails at the chosen difficulty
 # tier before it's worth doing; otherwise fall back to a single-trail
 # angle instead of forcing a list that doesn't exist.
@@ -81,7 +56,7 @@ def resolve_region(path, min_trails=MIN_TRAILS_FOR_LIST):
     return region
 
 
-def pick_region(recent_avoid_days=14, avoid_regions=None):
+def pick_region(candidate_regions, recent_avoid_days=14, avoid_regions=None):
     """Tries candidate regions in random order until one actually
     resolves with real, sufficient data. Skips anything used in the last
     `recent_avoid_days` so the feed doesn't repeat the same place, plus
@@ -96,7 +71,7 @@ def pick_region(recent_avoid_days=14, avoid_regions=None):
     }
     recently_used |= set(avoid_regions or [])
 
-    candidates = [c for c in CANDIDATE_REGIONS if c not in recently_used]
+    candidates = [c for c in candidate_regions if c not in recently_used]
     random.shuffle(candidates)
 
     for path in candidates:
@@ -208,20 +183,22 @@ DIFFICULTY_LABEL_TO_KEY_LOOKUP = {
 }
 
 
-def choose_concept(avoid_regions=None):
+def choose_concept(candidate_regions, avoid_regions=None):
     """Top-level entry point: returns a dict describing today's concept,
     or raises if no candidate region could be resolved at all (should be
     rare given the seed list, but this must never fall back to guessing).
 
+    `candidate_regions`: the app's seed list of region paths (e.g.
+    apps/ridepal.py's CANDIDATE_REGIONS).
     `avoid_regions`: region paths to skip, e.g. ones that already failed
     earlier in this same generation attempt.
     """
-    region_path, region = pick_region(avoid_regions=avoid_regions)
+    region_path, region = pick_region(candidate_regions, avoid_regions=avoid_regions)
     if not region:
         raise RuntimeError(
             "No candidate region resolved with real data -- add more "
-            "verified region paths to CANDIDATE_REGIONS rather than "
-            "falling back to an unverified guess."
+            "verified region paths to the app's candidate region list "
+            "rather than falling back to an unverified guess."
         )
 
     angle = pick_angle(region, region_path)
@@ -244,7 +221,8 @@ def choose_concept(avoid_regions=None):
 
 
 if __name__ == "__main__":
-    concept = choose_concept()
+    from apps import ridepal as app_config
+    concept = choose_concept(app_config.CANDIDATE_REGIONS)
     print(json.dumps({k: v for k, v in concept.items() if k != "region"}, indent=2))
     print("region trail count:", concept["region"]["total_trails"])
     print("region difficulty mix:", concept["region"]["difficulty_mix"])

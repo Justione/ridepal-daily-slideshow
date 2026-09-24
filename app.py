@@ -1,21 +1,33 @@
-"""RidePal Daily Slideshow -- internal tool web UI.
+"""Slideshow Generator -- internal tool web app, currently wired to
+RidePal via pipeline/apps/ridepal.py.
 
 A small local Flask app: one page with a Generate button that runs the
 full pipeline (region/trail selection, real stats, real GPS geometry,
-a real photo with a verified rider in it, AI-written on-brand copy, then
-the approved render template) and shows the result. Every run is also
-saved to state/history/ so past slideshows stay browsable instead of
-being lost the moment a new one is generated.
+a real photo with the subject verified in it, AI-written on-brand copy,
+then the approved render template) and shows the result. Every run is
+also saved to state/history/ so past slideshows stay browsable instead
+of being lost the moment a new one is generated.
+
+The pipeline modules (concept, blurb_writer, photo_serper, render) are
+generic -- they take an app config as a parameter rather than hardcoding
+RidePal. This file is the RidePal wiring: it imports pipeline/apps/
+ridepal.py and drives the generic pipeline with it. A second app would
+get its own config module (plus its own trail-data source, since that
+part is tied to the specific site being scraped) and its own entry point
+shaped like this one, not changes to the generic pipeline modules.
 """
+import io
 import json
+import re
 import sys
 import traceback
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, send_from_directory
+from flask import Flask, jsonify, render_template, send_file, send_from_directory
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent
@@ -28,6 +40,7 @@ import osm_geometry
 import photo_serper
 import render as render_module
 import trail_data
+from apps import ridepal as APP_CONFIG
 from errors import ConfigError
 
 OUTPUT_DIR = ROOT / "output" / "web"
@@ -110,7 +123,7 @@ def _attempt_pipeline(avoid_regions):
     config problem), the exception carries a `.region_path` attribute so
     the caller can avoid that region on the next attempt.
     """
-    c = concept.choose_concept(avoid_regions=avoid_regions)
+    c = concept.choose_concept(APP_CONFIG.CANDIDATE_REGIONS, avoid_regions=avoid_regions)
     region_path = c["region_path"]
     region_display, fallback_queries = _region_display_and_fallbacks(region_path)
 
@@ -141,7 +154,7 @@ def _attempt_pipeline(avoid_regions):
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
-            page.goto("https://www.ridepal.app/", wait_until="domcontentloaded", timeout=20000)
+            page.goto(trail_data.BASE + "/", wait_until="domcontentloaded", timeout=20000)
             for t in trails:
                 try:
                     t["net_elevation"], t["peak_elevation"] = trail_data.fetch_elevation(page, t["url"])
@@ -158,7 +171,7 @@ def _attempt_pipeline(avoid_regions):
         # rider actually in frame. This is NOT a licensed stock photo --
         # get the photographer's permission via the source page before
         # posting.
-        photo = photo_serper.find_photo(region_display, fallback_queries=fallback_queries)
+        photo = photo_serper.find_photo(region_display, APP_CONFIG, fallback_queries=fallback_queries)
         if not photo:
             raise RuntimeError(
                 f"No photo with a verified rider found for {region_display} or its fallbacks.")
@@ -174,7 +187,7 @@ def _attempt_pipeline(avoid_regions):
         # On-brand copy, grounded only in the real stats/description above
         region_state, region_country = fallback_queries
         copy = blurb_writer.write_copy(
-            region_display, angle_label, trails,
+            region_display, angle_label, trails, APP_CONFIG,
             region_state=region_state, region_country=region_country)
     except ConfigError:
         raise
@@ -182,10 +195,12 @@ def _attempt_pipeline(avoid_regions):
         e.region_path = region_path
         raise
 
+    logo = str(APP_CONFIG.LOGO_PATH)
     slides = [{
         "type": "cover",
         "photo": str(photo_path),
         "photo_object_position": photo_object_position,
+        "logo": logo,
         "headline": copy["cover_headline"],
     }]
     for t in trails[:3]:
@@ -193,6 +208,7 @@ def _attempt_pipeline(avoid_regions):
             "type": "trail_card",
             "photo": str(photo_path),
             "photo_object_position": photo_object_position,
+            "logo": logo,
             "card_w": 520,
             "trail_name": t["trail_name"],
             "difficulty": _difficulty_key(t["difficulty_label"]),
@@ -211,8 +227,9 @@ def _attempt_pipeline(avoid_regions):
         "type": "app_full_bleed",
         "photo": str(photo_path),
         "photo_object_position": photo_object_position,
-        "headline": "Find trails like this on RidePal.",
-        "subtext": "The app that shows you the best trails to ride no matter where you go.",
+        "logo": logo,
+        "headline": APP_CONFIG.CTA_HEADLINE,
+        "subtext": APP_CONFIG.CTA_SUBTEXT,
         "trail_name": hero["trail_name"],
         "difficulty": _difficulty_key(hero["difficulty_label"]),
         "bikes_ok": True,
@@ -239,7 +256,7 @@ def _attempt_pipeline(avoid_regions):
     for t in trails:
         caption_lines.append(f"{t['trail_name']}: {t.get('distance', '?')}, {t['difficulty_label']}")
     caption_lines.append("")
-    caption_lines.append("Find trails like this on RidePal.")
+    caption_lines.append(APP_CONFIG.CAPTION_CTA)
 
     return {
         "run_id": run_id,
@@ -331,6 +348,27 @@ def api_history_detail(run_id):
     if not path.exists():
         return jsonify({"error": "Not found"}), 404
     return jsonify(json.loads(path.read_text()))
+
+
+@app.route("/api/download/<run_id>")
+def api_download(run_id):
+    path = HISTORY_DIR / f"{run_id}.json"
+    if not path.exists():
+        return jsonify({"error": "Not found"}), 404
+    result = json.loads(path.read_text())
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for slide_url in result["slides"]:
+            slide_path = OUTPUT_DIR / Path(slide_url).relative_to("/output/web")
+            if slide_path.exists():
+                zf.write(slide_path, arcname=slide_path.name)
+        zf.writestr("caption.txt", result.get("caption", ""))
+    buf.seek(0)
+
+    region_slug = re.sub(r"[^a-z0-9]+", "-", result["region"].lower()).strip("-")
+    filename = f"{APP_CONFIG.APP_KEY}-{region_slug}-{run_id}.zip"
+    return send_file(buf, mimetype="application/zip", as_attachment=True, download_name=filename)
 
 
 @app.route("/output/web/<path:subpath>")
