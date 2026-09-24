@@ -162,7 +162,10 @@ def _inject_common(spec):
         spec.setdefault("difficulty_label", meta["label"])
     trail_name = spec.get("trail_name")
     if trail_name:
-        already_has_trail = trail_name.strip().lower().endswith("trail")
+        # Real trail names sometimes have "Trail" mid-name, not just at
+        # the end (e.g. "Upper Upper Trail #435.1") -- checking only the
+        # end let those through as "... Trail #435.1 Trail".
+        already_has_trail = bool(re.search(r"\btrail\b", trail_name, re.IGNORECASE))
         spec.setdefault("display_trail_name", trail_name if already_has_trail else f"{trail_name} Trail")
     return spec
 
