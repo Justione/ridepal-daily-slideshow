@@ -117,6 +117,14 @@ def pick_angle(region, region_path):
     expected to fetch a handful of the region's trail_paths and check
     each one's real difficulty via trail_data.fetch_trail until it has
     enough matches -- this function just decides which tier to aim for.
+
+    DIFFICULTY_ANGLES is ordered hardest to easiest, and this always
+    takes the hardest viable tier rather than choosing uniformly at
+    random. Easier tiers are almost always viable (there are usually
+    more beginner trails than double black diamonds anywhere), so a
+    uniform pick let the feed default to beginner content constantly --
+    the feed should lean into whatever real extreme terrain a region
+    actually has, not whatever's most common.
     """
     mix = region.get("difficulty_mix", {})
     viable = [(key, label, angle) for key, label, angle in DIFFICULTY_ANGLES
@@ -132,7 +140,7 @@ def pick_angle(region, region_path):
     pool = fresh or viable
 
     if pool:
-        return random.choice(pool)
+        return pool[0]
 
     # No tier has enough trails for a ranked list -- fall back to a
     # single-trail deep dive instead of forcing a list that doesn't exist.

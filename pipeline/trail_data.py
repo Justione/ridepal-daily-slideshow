@@ -76,6 +76,52 @@ def fetch_trail(path_or_url):
     }
 
 
+_ELEVATION_STAT_JS = """(label) => {
+    const els = Array.from(document.querySelectorAll('*'))
+        .filter(e => e.children.length === 0 && e.textContent.trim().toLowerCase() === label);
+    for (const e of els) {
+        const val = e.previousElementSibling ? e.previousElementSibling.textContent
+                   : (e.nextElementSibling ? e.nextElementSibling.textContent : null);
+        if (val) {
+            const v = val.trim();
+            if (v && v !== '...' && v !== '—' && v !== '-') return v;
+        }
+    }
+    return null;
+}"""
+
+
+def fetch_elevation(page, trail_url, timeout_ms=10000):
+    """Net and peak elevation are NOT in the trail page's server-rendered
+    HTML or its JSON-LD block -- confirmed by checking the raw response
+    directly: the labels are static but the actual numbers are injected
+    client-side after the page loads, taking up to several seconds (a
+    fresh page shows "..." then a placeholder dash before the real value
+    appears). So this needs a real browser: it navigates to the trail's
+    own page and waits for the site's own elevation values to actually
+    resolve, rather than reading whatever's there immediately.
+
+    `page` must be a live Playwright page in the same browser used for
+    OSM geometry lookups elsewhere in the pipeline -- navigating it here
+    is fine, Overpass only needs the page to be on some real origin.
+
+    Returns (net_elevation, peak_elevation) as strings, or None for
+    whichever never resolved within timeout_ms (never fabricated).
+    """
+    page.goto(trail_url, wait_until="domcontentloaded", timeout=20000)
+
+    def wait_for(label):
+        try:
+            handle = page.wait_for_function(_ELEVATION_STAT_JS, arg=label, timeout=timeout_ms)
+            return handle.json_value()
+        except Exception:
+            return None
+
+    net_elevation = wait_for("net elevation")
+    peak_elevation = wait_for("peak elevation")
+    return net_elevation, peak_elevation
+
+
 DIFFICULTY_LABEL_TO_KEY = {
     "Green Circle": "green",
     "Blue Square": "blue",

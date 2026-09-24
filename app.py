@@ -27,6 +27,7 @@ import concept
 import osm_geometry
 import photo_serper
 import render as render_module
+import trail_data
 from errors import ConfigError
 
 OUTPUT_DIR = ROOT / "output" / "web"
@@ -67,29 +68,40 @@ def _region_display_and_fallbacks(region_path):
     return city, [state, country]
 
 
+DIFFICULTY_RANK = {
+    "Double Black Diamond": 3, "Black Diamond": 2, "Blue Square": 1, "Green Circle": 0,
+}
+
+
 def _pick_single_trail(region):
     """Fallback when no difficulty tier has enough trails for a ranked
-    list: pick one real trail, preferring one with a substantive
-    description to write a better blurb from.
+    list: pick one real trail, preferring the hardest one available (the
+    feed should lean into whatever real extreme terrain exists rather
+    than defaulting to whatever's easiest, same reasoning as pick_angle)
+    and, among similarly hard trails, one with a substantive description
+    to write a better blurb from.
     """
     import random
-    import trail_data as td
 
     paths = list(region["trail_paths"])
     random.shuffle(paths)
-    best = None
+    checked = []
     for path in paths[:15]:
         try:
-            t = td.fetch_trail(path)
+            t = trail_data.fetch_trail(path)
         except Exception:
             continue
         if not t or not t.get("difficulty_label"):
             continue
-        if best is None:
-            best = t
-        if t.get("description") and len(t["description"]) > 120:
-            return t
-    return best
+        checked.append(t)
+
+    if not checked:
+        return None
+    checked.sort(key=lambda t: (
+        DIFFICULTY_RANK.get(t["difficulty_label"], 0),
+        1 if t.get("description") and len(t["description"]) > 120 else 0,
+    ), reverse=True)
+    return checked[0]
 
 
 def _attempt_pipeline(avoid_regions):
@@ -120,12 +132,21 @@ def _attempt_pipeline(avoid_regions):
 
         # Real GPS geometry, via a real (headless) browser -- Overpass
         # blocks plain HTTP clients but not an actual browser navigating
-        # a real page.
+        # a real page. Net/peak elevation also need a real browser: the
+        # numbers are injected client-side after the trail page loads
+        # (confirmed: the raw HTML never has them, and a fresh page shows
+        # a loading placeholder for several seconds before the real
+        # value appears), so this waits for them rather than reading
+        # whatever's there immediately.
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
             page.goto("https://www.ridepal.app/", wait_until="domcontentloaded", timeout=20000)
             for t in trails:
+                try:
+                    t["net_elevation"], t["peak_elevation"] = trail_data.fetch_elevation(page, t["url"])
+                except Exception:
+                    t["net_elevation"], t["peak_elevation"] = None, None
                 try:
                     t["points"] = osm_geometry.find_trail_geometry(
                         page, t["trail_name"], t["lat"], t["lon"], expected_surface=t.get("surface"))
@@ -176,8 +197,8 @@ def _attempt_pipeline(avoid_regions):
             "trail_name": t["trail_name"],
             "difficulty": _difficulty_key(t["difficulty_label"]),
             "distance": t.get("distance") or "—",
-            "elevation": "—",
-            "peak_elevation": "—",
+            "elevation": t.get("net_elevation") or "—",
+            "peak_elevation": t.get("peak_elevation") or "—",
             "est_time": t.get("est_time") or "—",
             "points": t.get("points"),
             "lat": t.get("lat"),
@@ -196,8 +217,8 @@ def _attempt_pipeline(avoid_regions):
         "difficulty": _difficulty_key(hero["difficulty_label"]),
         "bikes_ok": True,
         "distance": hero.get("distance") or "—",
-        "net_elevation": "—",
-        "peak_elevation": "—",
+        "net_elevation": hero.get("net_elevation") or "—",
+        "peak_elevation": hero.get("peak_elevation") or "—",
         "est_time": hero.get("est_time") or "—",
         "surface": hero.get("surface") or "—",
         "points": hero.get("points"),
